@@ -1,0 +1,49 @@
+{
+  "name": "d5-mermaid",
+  "version": "0.1.0",
+  "description": "Mermaid.js extension for D5 (Domain Driven Design Definitive Diagrams) — visualize DDD strategic and tactical patterns",
+  "type": "module",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "lint": "tsc --noEmit",
+    "prepublishOnly": "npm run build",
+    "preview": "npx http-server . -p 3000 -c-1"
+  },
+  "keywords": [
+    "mermaid",
+    "ddd",
+    "domain-driven-design",
+    "diagram",
+    "bounded-context",
+    "aggregate",
+    "subdomain",
+    "d5"
+  ],
+  "license": "MIT",
+  "peerDependencies": {
+    "mermaid": ">=11.0.0"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^3.1.0",
+    "jsdom": "^29.0.1",
+    "mermaid": "^11.6.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.8.0",
+    "vitest": "^3.1.0"
+  }
+}

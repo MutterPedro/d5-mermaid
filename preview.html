@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>D5 Mermaid Preview</title>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      line-height: 1.6;
+      color: #333;
+    }
+    pre {
+      background-color: #f6f8fa;
+      padding: 16px;
+      border-radius: 6px;
+      overflow: auto;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, SF Mono, Menlo, Consolas, Liberation Mono, monospace;
+      font-size: 85%;
+    }
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin-bottom: 20px;
+    }
+    th, td {
+      border: 1px solid #dfe2e5;
+      padding: 6px 13px;
+    }
+    th {
+      background-color: #f6f8fa;
+      font-weight: 600;
+    }
+    .mermaid {
+      display: flex;
+      justify-content: center;
+      margin: 30px 0;
+      background: white;
+      padding: 20px;
+      border: 1px solid #e1e4e8;
+      border-radius: 6px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Local D5 Mermaid README Preview Viewer</h1>
+  <p>Loading README.md...</p>
+  <div id="content"></div>
+
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+    async function init() {
+      const { d5Diagrams } = await import('./dist/index.js?v=' + Math.random());
+      // 1. Initialize mermaid and register our custom D5 diagrams
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+      await mermaid.registerExternalDiagrams(d5Diagrams);
+      
+      try {
+        // 2. Fetch the README.md content
+        const response = await fetch('./README.md');
+        if (!response.ok) throw new Error('Failed to load README.md');
+        const text = await response.text();
+        
+        // 3. Render markdown to HTML
+        document.getElementById('content').innerHTML = marked.parse(text);
+        
+        // Remove the loading text
+        document.querySelector('body > p')?.remove();
+        
+        // 4. Find all pre>code blocks and convert d5- blocks to mermaid diagrams
+        const codeBlocks = document.querySelectorAll('pre > code');
+        codeBlocks.forEach(codeBlock => {
+          const content = codeBlock.textContent.trim();
+          
+          // If the block is tagged as mermaid OR it starts with d5- (which means it's one of our diagrams)
+          if (codeBlock.classList.contains('language-mermaid') || content.startsWith('d5-')) {
+            const preElement = codeBlock.parentElement;
+            
+            // Create a new div with mermaid class
+            const mermaidDiv = document.createElement('div');
+            mermaidDiv.className = 'mermaid';
+            mermaidDiv.textContent = content;
+            
+            // Replace the <pre> tag with our new mermaid div
+            preElement.parentNode.replaceChild(mermaidDiv, preElement);
+          }
+        });
+        
+        // 5. Run mermaid to render all the diagram divs!
+        await mermaid.run();
+        
+      } catch (err) {
+        document.getElementById('content').innerHTML = `
+          <div style="color: red;">
+            <h2>Error viewing README</h2>
+            <p>${err.message}</p>
+            <p>Make sure you are running this file through a local web server (like Live Server or python -m http.server), not just double-clicking the HTML file directly from your file system (because of CORS issues).</p>
+          </div>
+        `;
+        console.error(err);
+      }
+    }
+    
+    init();
+  </script>
+</body>
+</html>
