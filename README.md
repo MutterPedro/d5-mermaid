@@ -110,18 +110,25 @@ Shows the tactical structure within a single bounded context.
 
 ```
 d5-context
-  title Order Context
+  title Patient Care Context
 
-  BoundedContext(order_ctx, "Order Context", team: "Order Squad") {
+  BoundedContext(care_ctx, "Clinical Context", team: "HealthTech Squad") {
     Language {
-      Term("Order", "A confirmed purchase request")
-      Term("Line Item", "A single product entry within an order")
+      Term("Consultation", "A direct interaction between doctor and patient")
+      Term("Vitals", "Key physiological stats like heart rate and temp")
+      Term("Prescription", "Authorized list of medicines issued")
+      Term("Biomarker", "A measurable indicator of some biological state")
     }
 
-    Aggregate(order_agg, "Order", root: "Order")
-    Aggregate(cart_agg, "Shopping Cart", root: "Cart")
+    Aggregate(appointment_agg, "Clinic Appointment", root: "Appointment", fields: "Time Slot, Location, Reason for Visit, Status")
+    Aggregate(history_agg, "Medical History", root: "Patient", fields: "Demographics, Allergies, Blood Type, Contact Info")
+    Aggregate(consult_agg, "Clinical Consultation", root: "Consultation", fields: "Recorded Vitals, Doctor Notes, Diagnoses, Prescriptions")
+    Aggregate(lab_agg, "Lab Report", root: "Report", fields: "Biomarkers, Reference Ranges, Observations, Specimen Details")
 
-    Rel(order_agg, cart_agg, "references by id")
+    Rel(appointment_agg, consult_agg, "leads to")
+    Rel(consult_agg, history_agg, "appends to")
+    Rel(consult_agg, lab_agg, "orders")
+    Rel(lab_agg, history_agg, "updates")
   }
 ```
 

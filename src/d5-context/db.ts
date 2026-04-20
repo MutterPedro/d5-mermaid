@@ -8,6 +8,7 @@ interface Aggregate {
   id: string;
   label: string;
   root: string;
+  fields?: string[];
 }
 
 interface Term {
@@ -46,8 +47,8 @@ export class D5ContextDb {
     return this.boundedContext;
   }
 
-  addAggregate(id: string, label: string, root: string): void {
-    this.aggregates.push({ id, label, root });
+  addAggregate(id: string, label: string, root: string, fields?: string[]): void {
+    this.aggregates.push({ id, label, root, fields });
   }
 
   getAggregates(): Aggregate[] {

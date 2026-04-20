@@ -4,7 +4,7 @@ const TITLE_RE = /^\s*title\s+(.+)$/;
 const BC_RE = /^\s*BoundedContext\(\s*(\w+)\s*,\s*"([^"]+)"\s*(?:,\s*team:\s*"([^"]+)")?\s*\)\s*\{?/;
 const LANGUAGE_RE = /^\s*Language\s*\{/;
 const TERM_RE = /^\s*Term\(\s*"([^"]+)"\s*,\s*"([^"]+)"\s*\)/;
-const AGGREGATE_RE = /^\s*Aggregate\(\s*(\w+)\s*,\s*"([^"]+)"\s*,\s*root:\s*"([^"]+)"\s*\)/;
+const AGGREGATE_RE = /^\s*Aggregate\(\s*(\w+)\s*,\s*"([^"]+)"\s*,\s*root:\s*"([^"]+)"(?:\s*,\s*fields:\s*"([^"]+)")?\s*\)/;
 const REL_RE = /^\s*Rel\(\s*(\w+)\s*,\s*(\w+)\s*,\s*"([^"]+)"\s*\)/;
 const CLOSE_BRACE_RE = /^\s*\}/;
 const COMMENT_LINE_RE = /^\s*%%/;
@@ -35,7 +35,8 @@ export function parse(text: string, db: D5ContextDb): void {
     } else if ((m = line.match(TERM_RE))) {
       db.addTerm(m[1], m[2]);
     } else if ((m = line.match(AGGREGATE_RE))) {
-      db.addAggregate(m[1], m[2], m[3]);
+      const fields = m[4] ? m[4].split(',').map((s) => s.trim()) : undefined;
+      db.addAggregate(m[1], m[2], m[3], fields);
     } else if ((m = line.match(REL_RE))) {
       db.addRelationship(m[1], m[2], m[3]);
     }
