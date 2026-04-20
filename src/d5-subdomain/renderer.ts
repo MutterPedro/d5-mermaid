@@ -1,19 +1,25 @@
 import type { D5SubdomainDb } from './db.js';
 import type { SubdomainType } from './db.js';
+import dagre from '@dagrejs/dagre';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const BC_RX = 80;
 const BC_RY = 28;
-const BC_SPACING_Y = 70;
-const SUBDOMAIN_PADDING = 30;
-const SUBDOMAIN_GAP = 50;
-const GRID_COLS = 3;
+const BC_WIDTH = BC_RX * 2;
+const BC_HEIGHT = BC_RY * 2;
 const TITLE_HEIGHT = 40;
 const MARGIN = 30;
 const ARROW_MARKER_SIZE = 8;
 const BC_LABEL_FONT = 12;
 const BC_TEAM_FONT = 10;
+const LEGEND_H = 30;
+const SUBDOMAIN_LABEL_H = 24;
+const CLUSTER_PADDING_X = 20;
+const CLUSTER_PADDING_Y_TOP = SUBDOMAIN_LABEL_H + 12;
+const CLUSTER_PADDING_Y_BOTTOM = 16;
+const NODESEP = 40;
+const RANKSEP = 60;
 
 const SUBDOMAIN_COLORS: Record<SubdomainType, { fill: string; stroke: string }> = {
   core: { fill: '#dbeafe', stroke: '#3b82f6' },
@@ -50,22 +56,23 @@ function addArrowMarker(svg: SVGSVGElement): void {
   defs.appendChild(marker);
 }
 
-function ellipseEdgePoint(
-  cx: number,
-  cy: number,
-  rx: number,
-  ry: number,
-  tx: number,
-  ty: number,
-): { x: number; y: number } {
-  const dx = tx - cx;
-  const dy = ty - cy;
-  if (dx === 0 && dy === 0) return { x: cx, y: cy };
-  const angle = Math.atan2(dy, dx);
-  return {
-    x: cx + rx * Math.cos(angle),
-    y: cy + ry * Math.sin(angle),
-  };
+// Generate an SVG path segment curving smoothly through points from Dagre
+function generateCurvePath(points: { x: number; y: number }[]): string {
+  if (!points || points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x} ${last.y}`;
+  return d;
 }
 
 export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
@@ -76,71 +83,52 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
   const boundedContexts = db.getBoundedContexts();
   const relationships = db.getRelationships();
 
-  // Compute subdomain box sizes based on BC count
-  interface SubdomainLayout {
-    id: string;
-    label: string;
-    type: SubdomainType;
-    bcCount: number;
-    width: number;
-    height: number;
-    x: number;
-    y: number;
-  }
+  // Build compound Dagre graph: subdomains as clusters, BCs as child nodes
+  const g = new dagre.graphlib.Graph({ compound: true });
+  g.setGraph({
+    rankdir: 'TB',
+    nodesep: NODESEP,
+    ranksep: RANKSEP,
+    edgesep: 20,
+    marginx: 0,
+    marginy: 0,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
 
-  const layouts: SubdomainLayout[] = subdomains.map((sd) => {
-    const bcs = boundedContexts.filter((bc) => bc.subdomainId === sd.id);
-    const bcCount = Math.max(bcs.length, 1);
-    const width = BC_RX * 2 + SUBDOMAIN_PADDING * 2;
-    const height = SUBDOMAIN_PADDING + 24 + bcCount * BC_SPACING_Y + SUBDOMAIN_PADDING;
-    return { id: sd.id, label: sd.label, type: sd.type, bcCount, width, height, x: 0, y: 0 };
+  const subdomainIds = new Set(subdomains.map((s) => s.id));
+
+  subdomains.forEach((sd) => {
+    g.setNode(sd.id, {
+      label: sd.label,
+      clusterLabelPos: 'top',
+      paddingTop: CLUSTER_PADDING_Y_TOP,
+      paddingBottom: CLUSTER_PADDING_Y_BOTTOM,
+      paddingLeft: CLUSTER_PADDING_X,
+      paddingRight: CLUSTER_PADDING_X,
+    });
   });
 
-  // Grid layout for subdomains
-  const cols = Math.min(layouts.length, GRID_COLS);
-  const colWidths: number[] = [];
-  for (let c = 0; c < cols; c++) {
-    let maxW = 0;
-    for (let i = c; i < layouts.length; i += GRID_COLS) {
-      maxW = Math.max(maxW, layouts[i].width);
+  boundedContexts.forEach((bc) => {
+    g.setNode(bc.id, { width: BC_WIDTH, height: BC_HEIGHT });
+    if (bc.subdomainId && subdomainIds.has(bc.subdomainId)) {
+      g.setParent(bc.id, bc.subdomainId);
     }
-    colWidths.push(maxW);
-  }
+  });
 
-  const rows = Math.ceil(layouts.length / GRID_COLS);
-  const rowHeights: number[] = [];
-  for (let r = 0; r < rows; r++) {
-    let maxH = 0;
-    for (let c = 0; c < cols; c++) {
-      const idx = r * GRID_COLS + c;
-      if (idx < layouts.length) maxH = Math.max(maxH, layouts[idx].height);
-    }
-    rowHeights.push(maxH);
-  }
+  relationships.forEach((rel) => {
+    g.setEdge(rel.source, rel.target, { minlen: 1 });
+  });
+
+  dagre.layout(g);
+
+  const graphW = g.graph().width || 0;
+  const graphH = g.graph().height || 0;
 
   const gridStartX = MARGIN;
   const gridStartY = MARGIN + (title ? TITLE_HEIGHT : 0);
 
-  layouts.forEach((lay, i) => {
-    const col = i % GRID_COLS;
-    const row = Math.floor(i / GRID_COLS);
-    let x = gridStartX;
-    for (let c = 0; c < col; c++) x += colWidths[c] + SUBDOMAIN_GAP;
-    let y = gridStartY;
-    for (let r = 0; r < row; r++) y += rowHeights[r] + SUBDOMAIN_GAP;
-    lay.x = x;
-    lay.y = y;
-  });
-
-  const totalW =
-    gridStartX + colWidths.reduce((a, b) => a + b, 0) + (cols - 1) * SUBDOMAIN_GAP + MARGIN;
-  const legendH = 30;
-  const totalH =
-    gridStartY +
-    rowHeights.reduce((a, b) => a + b, 0) +
-    (rows - 1) * SUBDOMAIN_GAP +
-    legendH +
-    MARGIN;
+  const totalW = gridStartX + graphW + MARGIN;
+  const totalH = gridStartY + graphH + LEGEND_H + MARGIN;
 
   container.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
   container.setAttribute('height', String(totalH));
@@ -160,113 +148,119 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
     container.appendChild(titleEl);
   }
 
-  // Render subdomains and BCs
-  const bcCenters = new Map<string, { cx: number; cy: number }>();
+  // Subdomain clusters
+  subdomains.forEach((sd) => {
+    const node = g.node(sd.id);
+    if (!node) return;
 
-  layouts.forEach((lay) => {
-    const colors = SUBDOMAIN_COLORS[lay.type];
-    const bcsInSd = boundedContexts.filter((bc) => bc.subdomainId === lay.id);
+    const colors = SUBDOMAIN_COLORS[sd.type];
+    const w = node.width;
+    const h = node.height;
+    const x = gridStartX + node.x - w / 2;
+    const y = gridStartY + node.y - h / 2;
 
-    const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', `d5-subdomain d5-subdomain-${lay.type}`);
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', `d5-subdomain d5-subdomain-${sd.type}`);
 
-    // Subdomain rounded rect
     const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', String(lay.x));
-    rect.setAttribute('y', String(lay.y));
-    rect.setAttribute('width', String(lay.width));
-    rect.setAttribute('height', String(lay.height));
+    rect.setAttribute('x', String(x));
+    rect.setAttribute('y', String(y));
+    rect.setAttribute('width', String(w));
+    rect.setAttribute('height', String(h));
     rect.setAttribute('rx', '12');
     rect.setAttribute('fill', colors.fill);
     rect.setAttribute('stroke', colors.stroke);
     rect.setAttribute('stroke-width', '2');
     rect.setAttribute('stroke-dasharray', '8 4');
-    g.appendChild(rect);
+    group.appendChild(rect);
 
-    // Subdomain label
     const labelText = document.createElementNS(SVG_NS, 'text');
-    labelText.setAttribute('x', String(lay.x + lay.width / 2));
-    labelText.setAttribute('y', String(lay.y + 20));
+    labelText.setAttribute('x', String(x + w / 2));
+    labelText.setAttribute('y', String(y + 20));
     labelText.setAttribute('text-anchor', 'middle');
     labelText.setAttribute('font-size', '13');
     labelText.setAttribute('font-weight', '600');
     labelText.setAttribute('fill', '#1e293b');
-    labelText.textContent = lay.label;
-    g.appendChild(labelText);
+    labelText.textContent = sd.label;
+    group.appendChild(labelText);
 
-    // Bounded contexts as ellipses
-    bcsInSd.forEach((bc, bcIdx) => {
-      const cx = lay.x + lay.width / 2;
-      const cy = lay.y + SUBDOMAIN_PADDING + 24 + bcIdx * BC_SPACING_Y + BC_RY;
-
-      bcCenters.set(bc.id, { cx, cy });
-
-      const bcGroup = document.createElementNS(SVG_NS, 'g');
-      bcGroup.setAttribute('class', 'd5-bounded-context');
-
-      const ellipse = document.createElementNS(SVG_NS, 'ellipse');
-      ellipse.setAttribute('cx', String(cx));
-      ellipse.setAttribute('cy', String(cy));
-      ellipse.setAttribute('rx', String(BC_RX));
-      ellipse.setAttribute('ry', String(BC_RY));
-      ellipse.setAttribute('fill', 'white');
-      ellipse.setAttribute('stroke', colors.stroke);
-      ellipse.setAttribute('stroke-width', '2');
-      bcGroup.appendChild(ellipse);
-
-      const bcLabel = document.createElementNS(SVG_NS, 'text');
-      bcLabel.setAttribute('x', String(cx));
-      bcLabel.setAttribute('y', String(cy + (bc.team ? -4 : 4)));
-      bcLabel.setAttribute('text-anchor', 'middle');
-      bcLabel.setAttribute('font-size', String(BC_LABEL_FONT));
-      bcLabel.setAttribute('font-weight', '600');
-      bcLabel.setAttribute('fill', '#1e293b');
-      bcLabel.textContent = bc.label;
-      bcGroup.appendChild(bcLabel);
-
-      if (bc.team) {
-        const teamLabel = document.createElementNS(SVG_NS, 'text');
-        teamLabel.setAttribute('x', String(cx));
-        teamLabel.setAttribute('y', String(cy + 12));
-        teamLabel.setAttribute('text-anchor', 'middle');
-        teamLabel.setAttribute('font-size', String(BC_TEAM_FONT));
-        teamLabel.setAttribute('font-style', 'italic');
-        teamLabel.setAttribute('fill', '#64748b');
-        teamLabel.textContent = bc.team;
-        bcGroup.appendChild(teamLabel);
-      }
-
-      g.appendChild(bcGroup);
-    });
-
-    container.appendChild(g);
+    container.appendChild(group);
   });
 
-  // Relationships as arrows between BCs
+  // Bounded contexts
+  boundedContexts.forEach((bc) => {
+    const node = g.node(bc.id);
+    if (!node) return;
+
+    const sd = subdomains.find((s) => s.id === bc.subdomainId);
+    const colors = sd ? SUBDOMAIN_COLORS[sd.type] : { fill: '#ffffff', stroke: '#64748b' };
+
+    const cx = gridStartX + node.x;
+    const cy = gridStartY + node.y;
+
+    const bcGroup = document.createElementNS(SVG_NS, 'g');
+    bcGroup.setAttribute('class', 'd5-bounded-context');
+
+    const ellipse = document.createElementNS(SVG_NS, 'ellipse');
+    ellipse.setAttribute('cx', String(cx));
+    ellipse.setAttribute('cy', String(cy));
+    ellipse.setAttribute('rx', String(BC_RX));
+    ellipse.setAttribute('ry', String(BC_RY));
+    ellipse.setAttribute('fill', 'white');
+    ellipse.setAttribute('stroke', colors.stroke);
+    ellipse.setAttribute('stroke-width', '2');
+    bcGroup.appendChild(ellipse);
+
+    const bcLabel = document.createElementNS(SVG_NS, 'text');
+    bcLabel.setAttribute('x', String(cx));
+    bcLabel.setAttribute('y', String(cy + (bc.team ? -4 : 4)));
+    bcLabel.setAttribute('text-anchor', 'middle');
+    bcLabel.setAttribute('font-size', String(BC_LABEL_FONT));
+    bcLabel.setAttribute('font-weight', '600');
+    bcLabel.setAttribute('fill', '#1e293b');
+    bcLabel.textContent = bc.label;
+    bcGroup.appendChild(bcLabel);
+
+    if (bc.team) {
+      const teamLabel = document.createElementNS(SVG_NS, 'text');
+      teamLabel.setAttribute('x', String(cx));
+      teamLabel.setAttribute('y', String(cy + 12));
+      teamLabel.setAttribute('text-anchor', 'middle');
+      teamLabel.setAttribute('font-size', String(BC_TEAM_FONT));
+      teamLabel.setAttribute('font-style', 'italic');
+      teamLabel.setAttribute('fill', '#64748b');
+      teamLabel.textContent = bc.team;
+      bcGroup.appendChild(teamLabel);
+    }
+
+    container.appendChild(bcGroup);
+  });
+
+  // Relationships using Dagre edge points
   relationships.forEach((rel) => {
-    const src = bcCenters.get(rel.source);
-    const tgt = bcCenters.get(rel.target);
-    if (!src || !tgt) return;
+    const edge = g.edge(rel.source, rel.target);
+    if (!edge || !edge.points || edge.points.length === 0) return;
 
-    const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', 'd5-rel');
+    const shiftedPoints = edge.points.map((p) => ({
+      x: gridStartX + p.x,
+      y: gridStartY + p.y,
+    }));
 
-    const p1 = ellipseEdgePoint(src.cx, src.cy, BC_RX, BC_RY, tgt.cx, tgt.cy);
-    const p2 = ellipseEdgePoint(tgt.cx, tgt.cy, BC_RX, BC_RY, src.cx, src.cy);
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', 'd5-rel');
 
-    const line = document.createElementNS(SVG_NS, 'line');
-    line.setAttribute('x1', String(p1.x));
-    line.setAttribute('y1', String(p1.y));
-    line.setAttribute('x2', String(p2.x));
-    line.setAttribute('y2', String(p2.y));
-    line.setAttribute('stroke', '#64748b');
-    line.setAttribute('stroke-width', '1.5');
-    line.setAttribute('marker-end', 'url(#d5-arrowhead)');
-    g.appendChild(line);
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', generateCurvePath(shiftedPoints));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#64748b');
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('marker-end', 'url(#d5-arrowhead)');
+    group.appendChild(path);
 
     if (rel.label) {
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
+      const midIdx = Math.floor(shiftedPoints.length / 2);
+      const midX = shiftedPoints[midIdx].x;
+      const midY = shiftedPoints[midIdx].y;
 
       const labelBg = document.createElementNS(SVG_NS, 'rect');
       labelBg.setAttribute('x', String(midX - 50));
@@ -277,7 +271,7 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
       labelBg.setAttribute('fill', 'white');
       labelBg.setAttribute('stroke', '#cbd5e1');
       labelBg.setAttribute('stroke-width', '1');
-      g.appendChild(labelBg);
+      group.appendChild(labelBg);
 
       const labelText = document.createElementNS(SVG_NS, 'text');
       labelText.setAttribute('x', String(midX));
@@ -287,14 +281,14 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
       labelText.setAttribute('font-weight', '600');
       labelText.setAttribute('fill', '#475569');
       labelText.textContent = rel.label;
-      g.appendChild(labelText);
+      group.appendChild(labelText);
     }
 
-    container.appendChild(g);
+    container.appendChild(group);
   });
 
   // Legend
-  const legendY = totalH - legendH;
+  const legendY = totalH - LEGEND_H;
   const legendGroup = document.createElementNS(SVG_NS, 'g');
   legendGroup.setAttribute('class', 'd5-legend');
 

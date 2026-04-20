@@ -168,4 +168,51 @@ describe('d5-aggregate renderer', () => {
     const rels = container.querySelectorAll('.d5-rel');
     expect(rels).toHaveLength(0);
   });
+
+  it('snapshot: full aggregate with root, entities, and value objects', () => {
+    db.setTitle('Order Aggregate');
+    db.setAggregate('order_agg', 'Order', 'Order');
+    db.addEntity('order', 'Order');
+    db.addEntity('line_item', 'Line Item');
+    db.addValueObject('money', 'Money');
+    db.addValueObject('quantity', 'Quantity');
+    db.addValueObject('shipping_address', 'Shipping Address');
+    db.addValueObject('order_status', 'Order Status');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+
+  it('snapshot: aggregate with only entities', () => {
+    db.setTitle('Customer Aggregate');
+    db.setAggregate('customer_agg', 'Customer', 'Customer');
+    db.addEntity('customer', 'Customer');
+    db.addEntity('contact', 'Contact');
+    db.addEntity('address_book', 'Address Book');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+
+  it('snapshot: aggregate with only value objects', () => {
+    db.setTitle('Money Aggregate');
+    db.setAggregate('money_agg', 'Money', 'Money');
+    db.addValueObject('amount', 'Amount');
+    db.addValueObject('currency', 'Currency');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+
+  it('snapshot: minimal aggregate with just root entity', () => {
+    db.setAggregate('a1', 'Simple', 'Simple');
+    db.addEntity('simple', 'Simple');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
 });

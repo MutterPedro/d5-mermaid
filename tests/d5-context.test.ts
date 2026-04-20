@@ -158,4 +158,62 @@ describe('d5-context renderer', () => {
     expect(rels).toHaveLength(1);
     expect(rels[0].textContent).toContain('references by id');
   });
+
+  it('snapshot: full context with aggregates, language, and relationships', () => {
+    db.setTitle('Order Context');
+    db.setBoundedContext('order_ctx', 'Order Context', 'Order Squad');
+    db.addTerm('Order', 'A confirmed purchase request with one or more line items');
+    db.addTerm('Line Item', 'A single product entry within an order');
+    db.addAggregate('order_agg', 'Order', 'Order');
+    db.addAggregate('cart_agg', 'Shopping Cart', 'Cart');
+    db.addRelationship('order_agg', 'cart_agg', 'references by id');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+
+  it('snapshot: context with aggregates but no language', () => {
+    db.setTitle('Simple Context');
+    db.setBoundedContext('ctx', 'Context');
+    db.addAggregate('a1', 'Aggregate One', 'RootOne');
+    db.addAggregate('a2', 'Aggregate Two', 'RootTwo');
+    db.addRelationship('a1', 'a2', 'depends on');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+
+  it('snapshot: context with aggregate fields', () => {
+    db.setTitle('Fielded Context');
+    db.setBoundedContext('ctx', 'Context', 'Team');
+    db.addAggregate('order_agg', 'Order', 'Order', ['id', 'customerId', 'total', 'status']);
+    db.addAggregate('cart_agg', 'Cart', 'Cart', ['sessionId', 'items']);
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+
+  it('snapshot: minimal context with just a bounded context and one aggregate', () => {
+    db.setBoundedContext('ctx', 'Minimal Context');
+    db.addAggregate('a1', 'Root Agg', 'Root');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+
+  it('snapshot: context with only ubiquitous language terms', () => {
+    db.setTitle('Glossary Only');
+    db.setBoundedContext('ctx', 'Glossary Context');
+    db.addTerm('Bounded Context', 'A boundary within which a model is consistent');
+    db.addTerm('Aggregate', 'A cluster of domain objects treated as a unit');
+    db.addTerm('Entity', 'A domain object with a distinct identity');
+
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
 });

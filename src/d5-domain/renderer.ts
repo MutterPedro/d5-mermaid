@@ -1,11 +1,11 @@
 import type { D5DomainDb, SubdomainType } from './db.js';
+import dagre from '@dagrejs/dagre';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 const SUBDOMAIN_WIDTH = 180;
 const SUBDOMAIN_HEIGHT = 70;
-const GRID_COLS = 3;
-const GRID_GAP = 40;
+const GRID_GAP = 60; // Increased for better graph breathing room
 const DOMAIN_PADDING = 30;
 const TITLE_HEIGHT = 40;
 const DOMAIN_HEADER = 36;
@@ -43,23 +43,23 @@ function addArrowMarker(svg: SVGSVGElement): void {
   defs.appendChild(marker);
 }
 
-function edgePoint(
-  cx: number,
-  cy: number,
-  w: number,
-  h: number,
-  tx: number,
-  ty: number,
-): { x: number; y: number } {
-  const dx = tx - cx;
-  const dy = ty - cy;
-  if (dx === 0 && dy === 0) return { x: cx, y: cy };
-  const hw = w / 2;
-  const hh = h / 2;
-  const scaleX = dx !== 0 ? hw / Math.abs(dx) : Infinity;
-  const scaleY = dy !== 0 ? hh / Math.abs(dy) : Infinity;
-  const scale = Math.min(scaleX, scaleY);
-  return { x: cx + dx * scale, y: cy + dy * scale };
+// Generate an SVG path segment curving smoothly through an array of points provided by Dagre
+function generateCurvePath(points: { x: number; y: number }[]): string {
+  if (!points || points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
+  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+
+  let d = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
+  }
+  const last = points[points.length - 1];
+  d += ` L ${last.x} ${last.y}`;
+  return d;
 }
 
 export function render(db: D5DomainDb, container: SVGSVGElement): void {
@@ -67,17 +67,40 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
 
   const subdomains = db.getSubdomains();
   const domain = db.getDomain();
+  const relationships = db.getRelationships();
 
-  const cols = Math.min(subdomains.length, GRID_COLS);
-  const rows = Math.ceil(subdomains.length / GRID_COLS);
+  // Create Dagre Layout
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({
+    rankdir: 'TB',
+    nodesep: GRID_GAP,
+    ranksep: GRID_GAP,
+    edgesep: 20,
+    marginx: 0,
+    marginy: 0,
+  });
+  g.setDefaultEdgeLabel(() => ({}));
 
-  const gridW = cols * SUBDOMAIN_WIDTH + (cols - 1) * GRID_GAP;
-  const gridH = rows * SUBDOMAIN_HEIGHT + (rows - 1) * GRID_GAP;
+  subdomains.forEach((sd) => {
+    g.setNode(sd.id, { width: SUBDOMAIN_WIDTH, height: SUBDOMAIN_HEIGHT });
+  });
+
+  relationships.forEach((rel) => {
+    g.setEdge(rel.source, rel.target, { minlen: 1 });
+  });
+
+  dagre.layout(g);
+
+  // Compute graph bounds
+  const graphW = g.graph().width || 0;
+  const graphH = g.graph().height || 0;
 
   const domainX = DOMAIN_PADDING;
-  const domainY = TITLE_HEIGHT + DOMAIN_PADDING;
-  const domainW = gridW + DOMAIN_PADDING * 2;
-  const domainH = DOMAIN_HEADER + gridH + DOMAIN_PADDING * 2;
+  const domainY = (db.getTitle() ? TITLE_HEIGHT : 0) + DOMAIN_PADDING;
+
+  let domainW = graphW + DOMAIN_PADDING * 2;
+  if (!domain && subdomains.length === 0) domainW = 400; // fallback
+  const domainH = (domain ? DOMAIN_HEADER : 0) + graphH + DOMAIN_PADDING * 2;
 
   const totalW = domainX + domainW + DOMAIN_PADDING;
   const legendH = 30;
@@ -120,8 +143,8 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
 
   if (domain) {
     const domainLabel = document.createElementNS(SVG_NS, 'text');
-    domainLabel.setAttribute('x', String(domainX + 12));
-    domainLabel.setAttribute('y', String(domainY + 22));
+    domainLabel.setAttribute('x', String(domainX + 16));
+    domainLabel.setAttribute('y', String(domainY + 24));
     domainLabel.setAttribute('font-size', '14');
     domainLabel.setAttribute('font-weight', '600');
     domainLabel.setAttribute('fill', '#475569');
@@ -131,36 +154,36 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
 
   container.appendChild(domainGroup);
 
+  const graphStartX = domainX + DOMAIN_PADDING;
+  const graphStartY = domainY + (domain ? DOMAIN_HEADER : 0) + DOMAIN_PADDING;
+
   // Subdomains inside domain
-  const subdomainCenters = new Map<string, { cx: number; cy: number }>();
-  const gridStartX = domainX + DOMAIN_PADDING;
-  const gridStartY = domainY + DOMAIN_HEADER + DOMAIN_PADDING;
+  subdomains.forEach((sd) => {
+    const node = g.node(sd.id);
+    if (!node) return;
 
-  subdomains.forEach((sd, i) => {
-    const col = i % GRID_COLS;
-    const row = Math.floor(i / GRID_COLS);
-    const x = gridStartX + col * (SUBDOMAIN_WIDTH + GRID_GAP);
-    const y = gridStartY + row * (SUBDOMAIN_HEIGHT + GRID_GAP);
-    const cx = x + SUBDOMAIN_WIDTH / 2;
-    const cy = y + SUBDOMAIN_HEIGHT / 2;
-
-    subdomainCenters.set(sd.id, { cx, cy });
+    const w = node.width;
+    const h = node.height;
+    const x = graphStartX + node.x - w / 2;
+    const y = graphStartY + node.y - h / 2;
+    const cx = x + w / 2;
+    const cy = y + h / 2;
 
     const colors = SUBDOMAIN_COLORS[sd.type];
 
-    const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', `d5-subdomain d5-subdomain-${sd.type}`);
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', `d5-subdomain d5-subdomain-${sd.type}`);
 
     const rect = document.createElementNS(SVG_NS, 'rect');
     rect.setAttribute('x', String(x));
     rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(SUBDOMAIN_WIDTH));
-    rect.setAttribute('height', String(SUBDOMAIN_HEIGHT));
+    rect.setAttribute('width', String(w));
+    rect.setAttribute('height', String(h));
     rect.setAttribute('rx', '8');
     rect.setAttribute('fill', colors.fill);
     rect.setAttribute('stroke', colors.stroke);
     rect.setAttribute('stroke-width', '2');
-    g.appendChild(rect);
+    group.appendChild(rect);
 
     const labelText = document.createElementNS(SVG_NS, 'text');
     labelText.setAttribute('x', String(cx));
@@ -170,7 +193,7 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
     labelText.setAttribute('font-weight', '600');
     labelText.setAttribute('fill', '#1e293b');
     labelText.textContent = sd.label;
-    g.appendChild(labelText);
+    group.appendChild(labelText);
 
     const typeText = document.createElementNS(SVG_NS, 'text');
     typeText.setAttribute('x', String(cx));
@@ -179,48 +202,50 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
     typeText.setAttribute('font-size', '11');
     typeText.setAttribute('fill', colors.stroke);
     typeText.textContent = sd.type;
-    g.appendChild(typeText);
+    group.appendChild(typeText);
 
-    container.appendChild(g);
+    container.appendChild(group);
   });
 
   // Relationships as arrows
-  const relationships = db.getRelationships();
   relationships.forEach((rel) => {
-    const src = subdomainCenters.get(rel.source);
-    const tgt = subdomainCenters.get(rel.target);
-    if (!src || !tgt) return;
+    const edge = g.edge(rel.source, rel.target);
+    if (!edge || !edge.points || edge.points.length === 0) return;
 
-    const g = document.createElementNS(SVG_NS, 'g');
-    g.setAttribute('class', 'd5-rel');
+    // Shift points to relative coordinate space
+    const shiftedPoints = edge.points.map((p) => ({
+      x: graphStartX + p.x,
+      y: graphStartY + p.y,
+    }));
 
-    const p1 = edgePoint(src.cx, src.cy, SUBDOMAIN_WIDTH, SUBDOMAIN_HEIGHT, tgt.cx, tgt.cy);
-    const p2 = edgePoint(tgt.cx, tgt.cy, SUBDOMAIN_WIDTH, SUBDOMAIN_HEIGHT, src.cx, src.cy);
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', 'd5-rel');
 
-    const line = document.createElementNS(SVG_NS, 'line');
-    line.setAttribute('x1', String(p1.x));
-    line.setAttribute('y1', String(p1.y));
-    line.setAttribute('x2', String(p2.x));
-    line.setAttribute('y2', String(p2.y));
-    line.setAttribute('stroke', '#64748b');
-    line.setAttribute('stroke-width', '1.5');
-    line.setAttribute('marker-end', 'url(#d5-arrowhead)');
-    g.appendChild(line);
+    const pathString = generateCurvePath(shiftedPoints);
+
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', pathString);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', '#64748b');
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('marker-end', 'url(#d5-arrowhead)');
+    group.appendChild(path);
 
     if (rel.label) {
-      const midX = (p1.x + p2.x) / 2;
-      const midY = (p1.y + p2.y) / 2;
+      const midIdx = Math.floor(shiftedPoints.length / 2);
+      const midX = shiftedPoints[midIdx].x;
+      const midY = shiftedPoints[midIdx].y;
 
       const labelBg = document.createElementNS(SVG_NS, 'rect');
-      labelBg.setAttribute('x', String(midX - 40));
+      labelBg.setAttribute('x', String(midX - 45));
       labelBg.setAttribute('y', String(midY - 10));
-      labelBg.setAttribute('width', '80');
+      labelBg.setAttribute('width', '90');
       labelBg.setAttribute('height', '18');
       labelBg.setAttribute('rx', '4');
       labelBg.setAttribute('fill', 'white');
       labelBg.setAttribute('stroke', '#cbd5e1');
       labelBg.setAttribute('stroke-width', '1');
-      g.appendChild(labelBg);
+      group.appendChild(labelBg);
 
       const labelText = document.createElementNS(SVG_NS, 'text');
       labelText.setAttribute('x', String(midX));
@@ -229,10 +254,10 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
       labelText.setAttribute('font-size', '10');
       labelText.setAttribute('fill', '#475569');
       labelText.textContent = rel.label;
-      g.appendChild(labelText);
+      group.appendChild(labelText);
     }
 
-    container.appendChild(g);
+    container.appendChild(group);
   });
 
   // Legend
@@ -268,3 +293,4 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
 
   container.appendChild(legendGroup);
 }
+
