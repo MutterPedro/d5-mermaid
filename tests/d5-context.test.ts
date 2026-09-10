@@ -110,6 +110,70 @@ describe('d5-context parser', () => {
     expect(rels).toHaveLength(1);
     expect(rels[0].label).toBe('references by id');
   });
+
+  it('parses Event() domain-event edges, including parallel ones', () => {
+    const db = new D5ContextDb();
+    parse(`d5-context
+  BoundedContext(lending_ctx, "Lending") {
+    Aggregate(patron_agg, "Patron", root: "Patron")
+    Aggregate(book_agg, "Book", root: "Book")
+    Rel(patron_agg, book_agg, "by id")
+    Event(patron_agg, book_agg, "BookPlacedOnHold")
+    Event(patron_agg, book_agg, "BookCheckedOut")
+    Event(book_agg, patron_agg, "BookHoldExpired")
+  }
+`, db);
+
+    expect(db.getRelationships()).toHaveLength(1);
+    const events = db.getEvents();
+    expect(events).toHaveLength(3);
+    expect(events[0]).toEqual({ source: 'patron_agg', target: 'book_agg', name: 'BookPlacedOnHold' });
+    expect(events[2]).toEqual({ source: 'book_agg', target: 'patron_agg', name: 'BookHoldExpired' });
+  });
+
+  it('parses ReadModel() elements and Event edges targeting them', () => {
+    const db = new D5ContextDb();
+    parse(`d5-context
+  BoundedContext(lending_ctx, "Lending") {
+    Aggregate(book_agg, "Book", root: "Book")
+    ReadModel(patron_profile, "Patron Profile")
+    ReadModel(daily_sheet, "Expiring Holds Daily Sheet")
+    Event(book_agg, patron_profile, "BookCheckedOut")
+  }
+`, db);
+
+    const rms = db.getReadModels();
+    expect(rms).toHaveLength(2);
+    expect(rms[0]).toEqual({ id: 'patron_profile', label: 'Patron Profile' });
+    expect(db.getAggregates()).toHaveLength(1);
+    expect(db.getEvents()[0]).toEqual({
+      source: 'book_agg',
+      target: 'patron_profile',
+      name: 'BookCheckedOut',
+    });
+  });
+
+  it('parses Policy() reactions, including a self-directed one', () => {
+    const db = new D5ContextDb();
+    parse(`d5-context
+  BoundedContext(lending_ctx, "Lending") {
+    Aggregate(patron_agg, "Patron", root: "Patron")
+    Aggregate(book_agg, "Book", root: "Book")
+    Policy(book_agg, patron_agg, "when a book is checked out, complete the open-ended hold")
+    Policy(book_agg, book_agg, "each day: expire stale holds")
+  }
+`, db);
+
+    const policies = db.getPolicies();
+    expect(policies).toHaveLength(2);
+    expect(policies[0]).toEqual({
+      source: 'book_agg',
+      target: 'patron_agg',
+      rule: 'when a book is checked out, complete the open-ended hold',
+    });
+    expect(policies[1].source).toBe('book_agg');
+    expect(policies[1].target).toBe('book_agg');
+  });
 });
 
 describe('d5-context renderer', () => {

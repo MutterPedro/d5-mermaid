@@ -1,4 +1,8 @@
+import { type Direction, normalizeDirection } from '../shared/direction.js';
+
 export type SubdomainType = 'core' | 'supporting' | 'generic';
+
+const DEFAULT_DIRECTION: Direction = 'TB';
 
 interface Domain {
   id: string;
@@ -21,6 +25,7 @@ export class D5DomainDb {
   private domain: Domain | undefined;
   private subdomains: Subdomain[] = [];
   private relationships: Relationship[] = [];
+  private direction: Direction = DEFAULT_DIRECTION;
   private title: string | undefined;
   private accTitle: string | undefined;
   private accDescription: string | undefined;
@@ -49,10 +54,21 @@ export class D5DomainDb {
     this.relationships.push({ source, target, label });
   }
 
+  /** Accepts `LR` / `RL` / `TB` / `TD` / `BT` (case-insensitive); `TD` is stored as `TB`. */
+  setDirection(dir: string): void {
+    const normalized = normalizeDirection(dir);
+    if (normalized) this.direction = normalized;
+  }
+
+  getDirection(): Direction {
+    return this.direction;
+  }
+
   clear(): void {
     this.domain = undefined;
     this.subdomains = [];
     this.relationships = [];
+    this.direction = DEFAULT_DIRECTION;
     this.title = undefined;
     this.accTitle = undefined;
     this.accDescription = undefined;

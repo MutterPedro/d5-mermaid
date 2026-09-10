@@ -11,6 +11,20 @@ describe('d5-domain parser', () => {
     expect(db.getTitle()).toBe('ACME Retail Platform');
   });
 
+  it('defaults direction to TB and accepts an override', () => {
+    const dflt = new D5DomainDb();
+    parse('d5-domain\n  title X\n', dflt);
+    expect(dflt.getDirection()).toBe('TB');
+
+    const lr = new D5DomainDb();
+    parse('d5-domain\n  title X\n  direction LR\n', lr);
+    expect(lr.getDirection()).toBe('LR');
+
+    const bad = new D5DomainDb();
+    parse('d5-domain\n  direction nonsense\n', bad);
+    expect(bad.getDirection()).toBe('TB');
+  });
+
   it('parses a domain with subdomains', () => {
     const db = new D5DomainDb();
     parse(`d5-domain

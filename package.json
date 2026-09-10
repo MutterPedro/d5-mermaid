@@ -1,8 +1,12 @@
 {
   "name": "d5-mermaid",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "Mermaid.js extension for D5 (Domain Driven Design Definitive Diagrams) — visualize DDD strategic and tactical patterns",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MutterPedro/d5-mermaid.git"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -22,7 +26,8 @@
     "test:watch": "vitest",
     "lint": "tsc --noEmit",
     "prepublishOnly": "npm run build",
-    "preview": "npx http-server . -p 3000 -c-1"
+    "preview": "npx http-server . -p 3000 -c-1",
+    "gallery": "npm run build && npx http-server . -p 4599 -c-1 -o /examples/gallery.html"
   },
   "keywords": [
     "mermaid",

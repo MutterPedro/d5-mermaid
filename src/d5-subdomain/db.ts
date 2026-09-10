@@ -1,4 +1,9 @@
+import { type Direction, normalizeDirection } from '../shared/direction.js';
+
 export type SubdomainType = 'core' | 'supporting' | 'generic';
+
+/** Context-map layout flow; `LR` matches the upstream→downstream convention. */
+const DEFAULT_DIRECTION: Direction = 'LR';
 
 interface Subdomain {
   id: string;
@@ -23,6 +28,7 @@ export class D5SubdomainDb {
   private subdomains: Subdomain[] = [];
   private boundedContexts: BoundedContext[] = [];
   private relationships: Relationship[] = [];
+  private direction: Direction = DEFAULT_DIRECTION;
   private title: string | undefined;
   private accTitle: string | undefined;
   private accDescription: string | undefined;
@@ -33,6 +39,16 @@ export class D5SubdomainDb {
 
   getTitle(): string | undefined {
     return this.title;
+  }
+
+  /** Accepts `LR` / `RL` / `TB` / `TD` / `BT` (case-insensitive); `TD` is stored as `TB`. */
+  setDirection(dir: string): void {
+    const normalized = normalizeDirection(dir);
+    if (normalized) this.direction = normalized;
+  }
+
+  getDirection(): Direction {
+    return this.direction;
   }
 
   addSubdomain(id: string, label: string, type: SubdomainType): void {
@@ -63,6 +79,7 @@ export class D5SubdomainDb {
     this.subdomains = [];
     this.boundedContexts = [];
     this.relationships = [];
+    this.direction = DEFAULT_DIRECTION;
     this.title = undefined;
     this.accTitle = undefined;
     this.accDescription = undefined;

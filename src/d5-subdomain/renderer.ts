@@ -1,13 +1,129 @@
 import type { D5SubdomainDb } from './db.js';
 import type { SubdomainType } from './db.js';
 import dagre from '@dagrejs/dagre';
+import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
+import { measureText, wrapText, lineHeight } from '../shared/text.js';
+import { classifyRelationship, type RelPattern } from '../shared/context-relationship.js';
+
+const REL_LABEL_MAX_WIDTH = 150;
+const REL_STROKE = '#64748b';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
+interface Pt {
+  x: number;
+  y: number;
+}
+
+function pointAlong(from: Pt, to: Pt, dist: number): Pt {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+  const len = Math.hypot(dx, dy) || 1;
+  return { x: from.x + (dx / len) * dist, y: from.y + (dy / len) * dist };
+}
+
+function angleDeg(from: Pt, to: Pt): number {
+  return (Math.atan2(to.y - from.y, to.x - from.x) * 180) / Math.PI;
+}
+
+/** small circle with a role letter (U / D / S / C) sat on an edge endpoint */
+function roleMarker(cx: number, cy: number, text: string): SVGGElement {
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('class', 'd5-rel-role');
+  const c = document.createElementNS(SVG_NS, 'circle');
+  c.setAttribute('cx', String(cx));
+  c.setAttribute('cy', String(cy));
+  c.setAttribute('r', '8');
+  c.setAttribute('fill', 'white');
+  c.setAttribute('stroke', REL_STROKE);
+  c.setAttribute('stroke-width', '1.25');
+  g.appendChild(c);
+  const t = document.createElementNS(SVG_NS, 'text');
+  t.setAttribute('x', String(cx));
+  t.setAttribute('y', String(cy + 3));
+  t.setAttribute('text-anchor', 'middle');
+  t.setAttribute('font-size', '9');
+  t.setAttribute('font-weight', 'bold');
+  t.setAttribute('fill', '#475569');
+  t.textContent = text;
+  g.appendChild(t);
+  return g;
+}
+
+/** compact pattern badge (ACL / OHS / PL / CF / C/S / SK / P) centred on an edge */
+function patternBadge(cx: number, cy: number, text: string): SVGGElement {
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('class', 'd5-rel-badge');
+  const w = Math.ceil(measureText(text, { size: 10, weight: 700 }) + 12);
+  const h = 18;
+  const rect = document.createElementNS(SVG_NS, 'rect');
+  rect.setAttribute('x', String(cx - w / 2));
+  rect.setAttribute('y', String(cy - h / 2));
+  rect.setAttribute('width', String(w));
+  rect.setAttribute('height', String(h));
+  rect.setAttribute('rx', '4');
+  rect.setAttribute('fill', '#eef2ff');
+  rect.setAttribute('stroke', '#c7d2fe');
+  rect.setAttribute('stroke-width', '1');
+  g.appendChild(rect);
+  const t = document.createElementNS(SVG_NS, 'text');
+  t.setAttribute('x', String(cx));
+  t.setAttribute('y', String(cy + 3.5));
+  t.setAttribute('text-anchor', 'middle');
+  t.setAttribute('font-size', '10');
+  t.setAttribute('font-weight', '700');
+  t.setAttribute('fill', '#4338ca');
+  t.textContent = text;
+  g.appendChild(t);
+  return g;
+}
+
+/** anti-corruption-layer gate: a small box straddling the edge near the downstream end */
+function aclGate(cx: number, cy: number, deg: number): SVGGElement {
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('class', 'd5-rel-acl');
+  g.setAttribute('transform', `translate(${cx} ${cy}) rotate(${deg})`);
+  const rect = document.createElementNS(SVG_NS, 'rect');
+  rect.setAttribute('x', '-9');
+  rect.setAttribute('y', '-7');
+  rect.setAttribute('width', '18');
+  rect.setAttribute('height', '14');
+  rect.setAttribute('rx', '2');
+  rect.setAttribute('fill', 'white');
+  rect.setAttribute('stroke', REL_STROKE);
+  rect.setAttribute('stroke-width', '1.5');
+  g.appendChild(rect);
+  for (const dx of [-3, 3]) {
+    const tick = document.createElementNS(SVG_NS, 'line');
+    tick.setAttribute('x1', String(dx));
+    tick.setAttribute('y1', '-7');
+    tick.setAttribute('x2', String(dx));
+    tick.setAttribute('y2', '7');
+    tick.setAttribute('stroke', REL_STROKE);
+    tick.setAttribute('stroke-width', '1');
+    g.appendChild(tick);
+  }
+  return g;
+}
+
+/** open-host-service socket: a hollow ring near the upstream end */
+function ohsSocket(cx: number, cy: number): SVGGElement {
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('class', 'd5-rel-ohs');
+  const c = document.createElementNS(SVG_NS, 'circle');
+  c.setAttribute('cx', String(cx));
+  c.setAttribute('cy', String(cy));
+  c.setAttribute('r', '5');
+  c.setAttribute('fill', 'white');
+  c.setAttribute('stroke', REL_STROKE);
+  c.setAttribute('stroke-width', '1.5');
+  g.appendChild(c);
+  return g;
+}
+
 const BC_RX = 80;
 const BC_RY = 28;
-const BC_WIDTH = BC_RX * 2;
-const BC_HEIGHT = BC_RY * 2;
+const BC_LABEL_WRAP_W = 150;
 const TITLE_HEIGHT = 40;
 const MARGIN = 30;
 const ARROW_MARKER_SIZE = 8;
@@ -15,11 +131,18 @@ const BC_LABEL_FONT = 12;
 const BC_TEAM_FONT = 10;
 const LEGEND_H = 30;
 const SUBDOMAIN_LABEL_H = 24;
+const SUBDOMAIN_LABEL_FONT = 13;
 const CLUSTER_PADDING_X = 20;
+
+interface BcBox {
+  rx: number;
+  ry: number;
+  labelLines: string[];
+}
 const CLUSTER_PADDING_Y_TOP = SUBDOMAIN_LABEL_H + 12;
 const CLUSTER_PADDING_Y_BOTTOM = 16;
-const NODESEP = 40;
-const RANKSEP = 60;
+const NODESEP = 46;
+const RANKSEP = 96;
 
 const SUBDOMAIN_COLORS: Record<SubdomainType, { fill: string; stroke: string }> = {
   core: { fill: '#dbeafe', stroke: '#3b82f6' },
@@ -83,13 +206,19 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
   const boundedContexts = db.getBoundedContexts();
   const relationships = db.getRelationships();
 
-  // Build compound Dagre graph: subdomains as clusters, BCs as child nodes
+  // Build compound Dagre graph: subdomains as clusters, BCs as child nodes.
+  // Flow direction is author-controlled via `direction` (default LR — the context-map
+  // convention: upstream on the left, downstream on the right).
+  const direction = db.getDirection();
+  const horizontal = direction === 'LR' || direction === 'RL';
   const g = new dagre.graphlib.Graph({ compound: true });
   g.setGraph({
-    rankdir: 'TB',
+    rankdir: direction,
     nodesep: NODESEP,
-    ranksep: RANKSEP,
-    edgesep: 20,
+    ranksep: horizontal ? RANKSEP : 64,
+    edgesep: 30,
+    acyclicer: 'greedy',
+    ranker: 'network-simplex',
     marginx: 0,
     marginy: 0,
   });
@@ -97,26 +226,63 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
 
   const subdomainIds = new Set(subdomains.map((s) => s.id));
 
+  // Measure every bounded context so its ellipse fits the (wrapped) label + team.
+  const bcBoxes = new Map<string, BcBox>();
+  boundedContexts.forEach((bc) => {
+    const labelLines = wrapText(bc.label, BC_LABEL_WRAP_W, {
+      size: BC_LABEL_FONT,
+      weight: 600,
+    });
+    const widest = labelLines.reduce(
+      (m, l) => Math.max(m, measureText(l, { size: BC_LABEL_FONT, weight: 600 })),
+      0,
+    );
+    const teamW = bc.team ? measureText(bc.team, { size: BC_TEAM_FONT }) : 0;
+    const contentW = Math.max(widest, teamW);
+    const contentH =
+      labelLines.length * lineHeight(BC_LABEL_FONT) + (bc.team ? lineHeight(BC_TEAM_FONT) : 0);
+    const rx = Math.round(Math.max(BC_RX, contentW / 1.55 + 16));
+    const ry = Math.round(Math.max(BC_RY, contentH / 1.5 + 12));
+    bcBoxes.set(bc.id, { rx, ry, labelLines });
+  });
+
   subdomains.forEach((sd) => {
+    const labelW = measureText(sd.label, {
+      size: SUBDOMAIN_LABEL_FONT,
+      weight: 600,
+    });
+    // Widen the cluster so a long subdomain title cannot overflow it.
+    const padX = Math.max(CLUSTER_PADDING_X, Math.ceil((labelW + 28 - 2 * BC_RX) / 2));
     g.setNode(sd.id, {
       label: sd.label,
       clusterLabelPos: 'top',
       paddingTop: CLUSTER_PADDING_Y_TOP,
       paddingBottom: CLUSTER_PADDING_Y_BOTTOM,
-      paddingLeft: CLUSTER_PADDING_X,
-      paddingRight: CLUSTER_PADDING_X,
+      paddingLeft: padX,
+      paddingRight: padX,
     });
   });
 
   boundedContexts.forEach((bc) => {
-    g.setNode(bc.id, { width: BC_WIDTH, height: BC_HEIGHT });
+    const box = bcBoxes.get(bc.id)!;
+    g.setNode(bc.id, { width: box.rx * 2, height: box.ry * 2 });
     if (bc.subdomainId && subdomainIds.has(bc.subdomainId)) {
       g.setParent(bc.id, bc.subdomainId);
     }
   });
 
   relationships.forEach((rel) => {
-    g.setEdge(rel.source, rel.target, { minlen: 1 });
+    const edgeCfg: Record<string, unknown> = { minlen: 1 };
+    if (rel.label) {
+      const pattern = classifyRelationship(rel.label);
+      const { w, h } = pattern
+        ? { w: pattern.badge ? Math.ceil(measureText(pattern.badge, { size: 10, weight: 700 }) + 16) : 8, h: 20 }
+        : edgeLabelSize(rel.label, REL_LABEL_MAX_WIDTH);
+      edgeCfg.width = w;
+      edgeCfg.height = h;
+      edgeCfg.labelpos = 'c';
+    }
+    g.setEdge(rel.source, rel.target, edgeCfg);
   });
 
   dagre.layout(g);
@@ -124,11 +290,19 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
   const graphW = g.graph().width || 0;
   const graphH = g.graph().height || 0;
 
+  // Distinct context-map patterns actually used, in first-seen order (for the legend).
+  const usedPatterns: RelPattern[] = [];
+  for (const rel of relationships) {
+    const p = rel.label ? classifyRelationship(rel.label) : null;
+    if (p && !usedPatterns.some((u) => u.name === p.name)) usedPatterns.push(p);
+  }
+
   const gridStartX = MARGIN;
   const gridStartY = MARGIN + (title ? TITLE_HEIGHT : 0);
 
   const totalW = gridStartX + graphW + MARGIN;
-  const totalH = gridStartY + graphH + LEGEND_H + MARGIN;
+  const totalH =
+    gridStartY + graphH + LEGEND_H * (usedPatterns.length > 0 ? 2 : 1) + MARGIN;
 
   container.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
   container.setAttribute('height', String(totalH));
@@ -197,6 +371,7 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
 
     const cx = gridStartX + node.x;
     const cy = gridStartY + node.y;
+    const box = bcBoxes.get(bc.id)!;
 
     const bcGroup = document.createElementNS(SVG_NS, 'g');
     bcGroup.setAttribute('class', 'd5-bounded-context');
@@ -204,27 +379,35 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
     const ellipse = document.createElementNS(SVG_NS, 'ellipse');
     ellipse.setAttribute('cx', String(cx));
     ellipse.setAttribute('cy', String(cy));
-    ellipse.setAttribute('rx', String(BC_RX));
-    ellipse.setAttribute('ry', String(BC_RY));
+    ellipse.setAttribute('rx', String(box.rx));
+    ellipse.setAttribute('ry', String(box.ry));
     ellipse.setAttribute('fill', 'white');
     ellipse.setAttribute('stroke', colors.stroke);
     ellipse.setAttribute('stroke-width', '2');
     bcGroup.appendChild(ellipse);
 
-    const bcLabel = document.createElementNS(SVG_NS, 'text');
-    bcLabel.setAttribute('x', String(cx));
-    bcLabel.setAttribute('y', String(cy + (bc.team ? -4 : 4)));
-    bcLabel.setAttribute('text-anchor', 'middle');
-    bcLabel.setAttribute('font-size', String(BC_LABEL_FONT));
-    bcLabel.setAttribute('font-weight', '600');
-    bcLabel.setAttribute('fill', '#1e293b');
-    bcLabel.textContent = bc.label;
-    bcGroup.appendChild(bcLabel);
+    const labelLH = lineHeight(BC_LABEL_FONT);
+    const teamLH = bc.team ? lineHeight(BC_TEAM_FONT) : 0;
+    const blockH = box.labelLines.length * labelLH + teamLH;
+    let ty = cy - blockH / 2 + BC_LABEL_FONT * 0.85;
+
+    box.labelLines.forEach((ln) => {
+      const bcLabel = document.createElementNS(SVG_NS, 'text');
+      bcLabel.setAttribute('x', String(cx));
+      bcLabel.setAttribute('y', String(ty));
+      bcLabel.setAttribute('text-anchor', 'middle');
+      bcLabel.setAttribute('font-size', String(BC_LABEL_FONT));
+      bcLabel.setAttribute('font-weight', '600');
+      bcLabel.setAttribute('fill', '#1e293b');
+      bcLabel.textContent = ln;
+      bcGroup.appendChild(bcLabel);
+      ty += labelLH;
+    });
 
     if (bc.team) {
       const teamLabel = document.createElementNS(SVG_NS, 'text');
       teamLabel.setAttribute('x', String(cx));
-      teamLabel.setAttribute('y', String(cy + 12));
+      teamLabel.setAttribute('y', String(ty + 2));
       teamLabel.setAttribute('text-anchor', 'middle');
       teamLabel.setAttribute('font-size', String(BC_TEAM_FONT));
       teamLabel.setAttribute('font-style', 'italic');
@@ -241,56 +424,93 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
     const edge = g.edge(rel.source, rel.target);
     if (!edge || !edge.points || edge.points.length === 0) return;
 
-    const shiftedPoints = edge.points.map((p) => ({
+    const shiftedPoints: Pt[] = edge.points.map((p: { x: number; y: number }) => ({
       x: gridStartX + p.x,
       y: gridStartY + p.y,
     }));
 
-    const group = document.createElementNS(SVG_NS, 'g');
-    group.setAttribute('class', 'd5-rel');
+    const pattern: RelPattern | null = rel.label ? classifyRelationship(rel.label) : null;
+    const symmetric = !pattern || pattern.kind !== 'directional';
 
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', pattern ? `d5-rel d5-rel-${pattern.badge || 'sw'}` : 'd5-rel');
+    if (pattern) {
+      const title = document.createElementNS(SVG_NS, 'title');
+      title.textContent = pattern.name;
+      group.appendChild(title);
+    }
+
+    const strokeW = pattern?.thick ? 3 : pattern?.doubleStroke ? 4 : 1.5;
     const path = document.createElementNS(SVG_NS, 'path');
     path.setAttribute('d', generateCurvePath(shiftedPoints));
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#64748b');
-    path.setAttribute('stroke-width', '1.5');
-    path.setAttribute('marker-end', 'url(#d5-arrowhead)');
+    path.setAttribute('stroke', REL_STROKE);
+    path.setAttribute('stroke-width', String(strokeW));
+    if (pattern?.dashed) path.setAttribute('stroke-dasharray', '7 5');
+    if (!symmetric) path.setAttribute('marker-end', 'url(#d5-arrowhead)');
     group.appendChild(path);
 
+    // Shared Kernel: a thin white centre line turns the heavy stroke into a rail pair.
+    if (pattern?.doubleStroke) {
+      const inner = document.createElementNS(SVG_NS, 'path');
+      inner.setAttribute('d', generateCurvePath(shiftedPoints));
+      inner.setAttribute('fill', 'none');
+      inner.setAttribute('stroke', 'white');
+      inner.setAttribute('stroke-width', '1.5');
+      group.appendChild(inner);
+    }
+
+    // Endpoint decorations for directional patterns.
+    if (pattern && pattern.kind === 'directional' && shiftedPoints.length >= 2) {
+      const p0 = shiftedPoints[0];
+      const p1 = shiftedPoints[1];
+      const pN = shiftedPoints[shiftedPoints.length - 1];
+      const pN1 = shiftedPoints[shiftedPoints.length - 2];
+      if (pattern.upstreamRole) {
+        const m = pointAlong(p0, p1, 16);
+        group.appendChild(roleMarker(m.x, m.y, pattern.upstreamRole));
+      }
+      if (pattern.downstreamRole) {
+        const m = pointAlong(pN, pN1, 20);
+        group.appendChild(roleMarker(m.x, m.y, pattern.downstreamRole));
+      }
+      if (pattern.aclGate) {
+        const m = pointAlong(pN, pN1, 40);
+        group.appendChild(aclGate(m.x, m.y, angleDeg(pN1, pN)));
+      }
+      if (pattern.ohsSocket) {
+        const m = pointAlong(p0, p1, 34);
+        group.appendChild(ohsSocket(m.x, m.y));
+      }
+    }
+
     if (rel.label) {
-      const midIdx = Math.floor(shiftedPoints.length / 2);
-      const midX = shiftedPoints[midIdx].x;
-      const midY = shiftedPoints[midIdx].y;
-
-      const labelBg = document.createElementNS(SVG_NS, 'rect');
-      labelBg.setAttribute('x', String(midX - 50));
-      labelBg.setAttribute('y', String(midY - 10));
-      labelBg.setAttribute('width', '100');
-      labelBg.setAttribute('height', '18');
-      labelBg.setAttribute('rx', '4');
-      labelBg.setAttribute('fill', 'white');
-      labelBg.setAttribute('stroke', '#cbd5e1');
-      labelBg.setAttribute('stroke-width', '1');
-      group.appendChild(labelBg);
-
-      const labelText = document.createElementNS(SVG_NS, 'text');
-      labelText.setAttribute('x', String(midX));
-      labelText.setAttribute('y', String(midY + 3));
-      labelText.setAttribute('text-anchor', 'middle');
-      labelText.setAttribute('font-size', '10');
-      labelText.setAttribute('font-weight', '600');
-      labelText.setAttribute('fill', '#475569');
-      labelText.textContent = rel.label;
-      group.appendChild(labelText);
+      let lx: number;
+      let ly: number;
+      if (typeof edge.x === 'number' && typeof edge.y === 'number') {
+        lx = gridStartX + edge.x;
+        ly = gridStartY + edge.y;
+      } else {
+        const mid = shiftedPoints[Math.floor(shiftedPoints.length / 2)];
+        lx = mid.x;
+        ly = mid.y;
+      }
+      if (pattern && pattern.badge) {
+        group.appendChild(patternBadge(lx, ly, pattern.badge));
+      } else if (!pattern) {
+        group.appendChild(
+          createEdgeLabel({ x: lx, y: ly, text: rel.label, maxWidth: REL_LABEL_MAX_WIDTH }),
+        );
+      }
     }
 
     container.appendChild(group);
   });
 
   // Legend
-  const legendY = totalH - LEGEND_H;
   const legendGroup = document.createElementNS(SVG_NS, 'g');
   legendGroup.setAttribute('class', 'd5-legend');
+  const legendY = totalH - LEGEND_H * (usedPatterns.length > 0 ? 2 : 1);
 
   let legendX = MARGIN;
   LEGEND_ITEMS.forEach((item) => {
@@ -317,6 +537,36 @@ export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
 
     legendX += 90;
   });
+
+  // Second row: the context-map patterns present in this diagram.
+  if (usedPatterns.length > 0) {
+    let px = MARGIN;
+    const py = legendY + LEGEND_H;
+    usedPatterns.forEach((p) => {
+      if (p.badge) {
+        legendGroup.appendChild(patternBadge(px + 15, py + 7, p.badge));
+        px += 34;
+      } else {
+        const dash = document.createElementNS(SVG_NS, 'line');
+        dash.setAttribute('x1', String(px));
+        dash.setAttribute('y1', String(py + 7));
+        dash.setAttribute('x2', String(px + 22));
+        dash.setAttribute('y2', String(py + 7));
+        dash.setAttribute('stroke', REL_STROKE);
+        dash.setAttribute('stroke-dasharray', '4 3');
+        legendGroup.appendChild(dash);
+        px += 28;
+      }
+      const label = document.createElementNS(SVG_NS, 'text');
+      label.setAttribute('x', String(px + 4));
+      label.setAttribute('y', String(py + 11));
+      label.setAttribute('font-size', '11');
+      label.setAttribute('fill', '#64748b');
+      label.textContent = p.name;
+      legendGroup.appendChild(label);
+      px += measureText(p.name, { size: 11 }) + 22;
+    });
+  }
 
   container.appendChild(legendGroup);
 }

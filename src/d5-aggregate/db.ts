@@ -14,10 +14,18 @@ interface ValueObject {
   label: string;
 }
 
+interface Invariant {
+  /** optional short name / subject */
+  name: string | undefined;
+  /** the rule statement */
+  text: string;
+}
+
 export class D5AggregateDb {
   private aggregate: Aggregate | undefined;
   private entities: Entity[] = [];
   private valueObjects: ValueObject[] = [];
+  private invariants: Invariant[] = [];
   private title: string | undefined;
   private accTitle: string | undefined;
   private accDescription: string | undefined;
@@ -46,10 +54,19 @@ export class D5AggregateDb {
     this.valueObjects.push({ id, label });
   }
 
+  getInvariants(): Invariant[] {
+    return this.invariants;
+  }
+
+  addInvariant(text: string, name?: string): void {
+    this.invariants.push({ name: name || undefined, text });
+  }
+
   clear(): void {
     this.aggregate = undefined;
     this.entities = [];
     this.valueObjects = [];
+    this.invariants = [];
     this.title = undefined;
     this.accTitle = undefined;
     this.accDescription = undefined;

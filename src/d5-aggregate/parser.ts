@@ -4,6 +4,8 @@ const TITLE_RE = /^\s*title\s+(.+)$/;
 const AGGREGATE_RE = /^\s*Aggregate\(\s*(\w+)\s*,\s*"([^"]+)"\s*,\s*root:\s*"([^"]+)"\s*\)\s*\{/;
 const ENTITY_RE = /^\s*Entity\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)/;
 const VALUE_OBJECT_RE = /^\s*ValueObject\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)/;
+const INVARIANTS_RE = /^\s*Invariants\s*\{/;
+const INVARIANT_RE = /^\s*Invariant\(\s*"([^"]+)"\s*(?:,\s*"([^"]+)")?\s*\)/;
 const CLOSE_BRACE_RE = /^\s*\}/;
 const COMMENT_LINE_RE = /^\s*%%/;
 
@@ -27,6 +29,12 @@ export function parse(text: string, db: D5AggregateDb): void {
       db.setTitle(m[1].trim());
     } else if ((m = line.match(AGGREGATE_RE))) {
       db.setAggregate(m[1], m[2], m[3]);
+    } else if (INVARIANTS_RE.test(line)) {
+      // entering the Invariants block — nothing to store
+    } else if ((m = line.match(INVARIANT_RE))) {
+      // one-arg: Invariant("rule")  ·  two-arg: Invariant("Subject", "rule")
+      if (m[2] !== undefined) db.addInvariant(m[2], m[1]);
+      else db.addInvariant(m[1]);
     } else if ((m = line.match(ENTITY_RE))) {
       db.addEntity(m[1], m[2]);
     } else if ((m = line.match(VALUE_OBJECT_RE))) {

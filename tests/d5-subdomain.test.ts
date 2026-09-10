@@ -68,6 +68,24 @@ describe('d5-subdomain db', () => {
 });
 
 describe('d5-subdomain parser', () => {
+  it('defaults direction to LR and accepts a direction override', () => {
+    const dflt = new D5SubdomainDb();
+    parse('d5-subdomain\n  title X\n', dflt);
+    expect(dflt.getDirection()).toBe('LR');
+
+    const td = new D5SubdomainDb();
+    parse('d5-subdomain\n  title X\n  direction TD\n', td);
+    expect(td.getDirection()).toBe('TB');
+
+    const bt = new D5SubdomainDb();
+    parse('d5-subdomain\n  direction bt\n', bt);
+    expect(bt.getDirection()).toBe('BT');
+
+    const bad = new D5SubdomainDb();
+    parse('d5-subdomain\n  direction sideways\n', bad);
+    expect(bad.getDirection()).toBe('LR');
+  });
+
   it('parses subdomains with bounded contexts and relationships', () => {
     const db = new D5SubdomainDb();
     parse(`d5-subdomain

@@ -1,11 +1,16 @@
 import type { D5DomainDb, SubdomainType } from './db.js';
 import dagre from '@dagrejs/dagre';
+import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
+import { boxWidth } from '../shared/shape.js';
+
+const REL_LABEL_MAX_WIDTH = 150;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-const SUBDOMAIN_WIDTH = 180;
+const SUBDOMAIN_MIN_WIDTH = 180;
+const SUBDOMAIN_MAX_WIDTH = 320;
 const SUBDOMAIN_HEIGHT = 70;
-const GRID_GAP = 60; // Increased for better graph breathing room
+const SUBDOMAIN_LABEL_PAD_X = 18;
 const DOMAIN_PADDING = 30;
 const TITLE_HEIGHT = 40;
 const DOMAIN_HEADER = 36;
@@ -69,24 +74,41 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
   const domain = db.getDomain();
   const relationships = db.getRelationships();
 
-  // Create Dagre Layout
+  // Create Dagre Layout. Flow direction is author-controlled via `direction` (default TB).
+  const direction = db.getDirection();
+  const horizontal = direction === 'LR' || direction === 'RL';
   const g = new dagre.graphlib.Graph();
   g.setGraph({
-    rankdir: 'TB',
-    nodesep: GRID_GAP,
-    ranksep: GRID_GAP,
-    edgesep: 20,
+    rankdir: direction,
+    nodesep: horizontal ? 46 : 74,
+    ranksep: horizontal ? 92 : 58,
+    edgesep: 28,
+    acyclicer: 'greedy',
+    ranker: 'network-simplex',
     marginx: 0,
     marginy: 0,
   });
   g.setDefaultEdgeLabel(() => ({}));
 
   subdomains.forEach((sd) => {
-    g.setNode(sd.id, { width: SUBDOMAIN_WIDTH, height: SUBDOMAIN_HEIGHT });
+    const w = boxWidth(
+      [{ text: sd.label, font: { size: 13, weight: 600 } }],
+      SUBDOMAIN_LABEL_PAD_X,
+      SUBDOMAIN_MIN_WIDTH,
+      SUBDOMAIN_MAX_WIDTH,
+    );
+    g.setNode(sd.id, { width: w, height: SUBDOMAIN_HEIGHT });
   });
 
   relationships.forEach((rel) => {
-    g.setEdge(rel.source, rel.target, { minlen: 1 });
+    const edgeCfg: Record<string, unknown> = { minlen: 1 };
+    if (rel.label) {
+      const { w, h } = edgeLabelSize(rel.label, REL_LABEL_MAX_WIDTH);
+      edgeCfg.width = w;
+      edgeCfg.height = h;
+      edgeCfg.labelpos = 'c';
+    }
+    g.setEdge(rel.source, rel.target, edgeCfg);
   });
 
   dagre.layout(g);
@@ -213,48 +235,45 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
     if (!edge || !edge.points || edge.points.length === 0) return;
 
     // Shift points to relative coordinate space
-    const shiftedPoints = edge.points.map((p) => ({
+    const shiftedPoints = edge.points.map((p: { x: number; y: number }) => ({
       x: graphStartX + p.x,
       y: graphStartY + p.y,
     }));
 
+    // An edge that runs against the rank flow (target sits above its source) is a
+    // feedback / reverse dependency — draw it lighter and dashed so it reads as one.
+    const srcNode = g.node(rel.source);
+    const tgtNode = g.node(rel.target);
+    const isBackEdge = !!srcNode && !!tgtNode && tgtNode.y < srcNode.y - 1;
+
     const group = document.createElementNS(SVG_NS, 'g');
-    group.setAttribute('class', 'd5-rel');
+    group.setAttribute('class', isBackEdge ? 'd5-rel d5-rel-back' : 'd5-rel');
 
     const pathString = generateCurvePath(shiftedPoints);
 
     const path = document.createElementNS(SVG_NS, 'path');
     path.setAttribute('d', pathString);
     path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#64748b');
+    path.setAttribute('stroke', isBackEdge ? '#94a3b8' : '#64748b');
     path.setAttribute('stroke-width', '1.5');
+    if (isBackEdge) path.setAttribute('stroke-dasharray', '6 4');
     path.setAttribute('marker-end', 'url(#d5-arrowhead)');
     group.appendChild(path);
 
     if (rel.label) {
-      const midIdx = Math.floor(shiftedPoints.length / 2);
-      const midX = shiftedPoints[midIdx].x;
-      const midY = shiftedPoints[midIdx].y;
-
-      const labelBg = document.createElementNS(SVG_NS, 'rect');
-      labelBg.setAttribute('x', String(midX - 45));
-      labelBg.setAttribute('y', String(midY - 10));
-      labelBg.setAttribute('width', '90');
-      labelBg.setAttribute('height', '18');
-      labelBg.setAttribute('rx', '4');
-      labelBg.setAttribute('fill', 'white');
-      labelBg.setAttribute('stroke', '#cbd5e1');
-      labelBg.setAttribute('stroke-width', '1');
-      group.appendChild(labelBg);
-
-      const labelText = document.createElementNS(SVG_NS, 'text');
-      labelText.setAttribute('x', String(midX));
-      labelText.setAttribute('y', String(midY + 3));
-      labelText.setAttribute('text-anchor', 'middle');
-      labelText.setAttribute('font-size', '10');
-      labelText.setAttribute('fill', '#475569');
-      labelText.textContent = rel.label;
-      group.appendChild(labelText);
+      let lx: number;
+      let ly: number;
+      if (typeof edge.x === 'number' && typeof edge.y === 'number') {
+        lx = graphStartX + edge.x;
+        ly = graphStartY + edge.y;
+      } else {
+        const mid = shiftedPoints[Math.floor(shiftedPoints.length / 2)];
+        lx = mid.x;
+        ly = mid.y;
+      }
+      group.appendChild(
+        createEdgeLabel({ x: lx, y: ly, text: rel.label, maxWidth: REL_LABEL_MAX_WIDTH }),
+      );
     }
 
     container.appendChild(group);

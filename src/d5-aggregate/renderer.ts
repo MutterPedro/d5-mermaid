@@ -1,110 +1,103 @@
 import type { D5AggregateDb } from './db.js';
-import dagre from '@dagrejs/dagre';
+import { measureText, wrapText, lineHeight, type FontSpec } from '../shared/text.js';
+import { gridDimensions } from '../shared/shape.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
-const ITEM_WIDTH = 180;
-const ITEM_HEIGHT = 44;
-const GRID_GAP = 50;
-
 const MARGIN = 30;
 const TITLE_HEIGHT = 40;
-const AGG_PADDING = 30;
+const AGG_PADDING = 28;
 const AGG_HEADER = 36;
-const ARROW_MARKER_SIZE = 8;
 
-function addArrowMarker(svg: SVGSVGElement): void {
-  let defs = svg.querySelector('defs');
-  if (!defs) {
-    defs = document.createElementNS(SVG_NS, 'defs');
-    svg.prepend(defs);
-  }
-  const marker = document.createElementNS(SVG_NS, 'marker');
-  marker.setAttribute('id', 'd5-arrowhead');
-  marker.setAttribute('markerWidth', String(ARROW_MARKER_SIZE));
-  marker.setAttribute('markerHeight', String(ARROW_MARKER_SIZE));
-  marker.setAttribute('refX', String(ARROW_MARKER_SIZE));
-  marker.setAttribute('refY', String(ARROW_MARKER_SIZE / 2));
-  marker.setAttribute('orient', 'auto');
-  const path = document.createElementNS(SVG_NS, 'path');
-  path.setAttribute(
-    'd',
-    `M0,0 L${ARROW_MARKER_SIZE},${ARROW_MARKER_SIZE / 2} L0,${ARROW_MARKER_SIZE}`,
-  );
-  path.setAttribute('fill', '#94a3b8');
-  marker.appendChild(path);
-  defs.appendChild(marker);
-}
+// Root card (full-width head of the aggregate)
+const ROOT_H = 58;
+const ROOT_MIN_W = 320;
 
-function generateCurvePath(points: { x: number; y: number }[]): string {
-  if (!points || points.length === 0) return '';
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+// Member grid
+const CELL_MIN_W = 150;
+const CELL_MAX_W = 240;
+const CELL_GAP = 18;
+const CELL_PAD_X = 16;
+const CELL_PAD_Y = 9;
+const LABEL_FONT: FontSpec = { size: 13, weight: 600 };
+const TYPE_FONT_SIZE = 10;
+const TARGET_GRID_W = 980;
+const ROOT_TO_GRID_GAP = 24;
 
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    const midX = (p1.x + p2.x) / 2;
-    const midY = (p1.y + p2.y) / 2;
-    d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
-  }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
-  return d;
+// Invariants band (rendered inside the aggregate boundary, below the object grid)
+const INV_FONT = 12;
+const INV_TITLE_FONT = 12;
+const INV_PAD = 16;
+const INV_BULLET_INDENT = 16;
+const INV_GAP_ABOVE = 22;
+const INV_TITLE_GAP = 12;
+const INV_ITEM_GAP = 9;
+const INV_BAND_BOTTOM_PAD = 12;
+const INV_MAX_TEXT_COL = 620; // keep invariant prose in a readable column even on a wide grid
+
+interface Member {
+  id: string;
+  label: string;
+  kind: 'entity' | 'value-object';
+  lines: string[];
 }
 
 export function render(db: D5AggregateDb, container: SVGSVGElement): void {
-  addArrowMarker(container);
-
   const title = db.getTitle();
   const aggregate = db.getAggregate();
   const entities = db.getEntities();
   const valueObjects = db.getValueObjects();
+  const invariants = db.getInvariants();
 
-  const g = new dagre.graphlib.Graph();
-  g.setGraph({
-    rankdir: 'TB',
-    nodesep: GRID_GAP,
-    ranksep: GRID_GAP,
-    edgesep: 20,
-    marginx: 0,
-    marginy: 0,
-  });
-  g.setDefaultEdgeLabel(() => ({}));
+  const rootId = aggregate ? entities.find((e) => e.label === aggregate.root)?.id : undefined;
 
-  entities.forEach(e => {
-    g.setNode(e.id, { width: ITEM_WIDTH, height: ITEM_HEIGHT });
-  });
-  valueObjects.forEach(v => {
-    g.setNode(v.id, { width: ITEM_WIDTH, height: ITEM_HEIGHT });
-  });
+  // ---- Member grid: measure + wrap every cell, pick a uniform cell width ----------
+  const wrapW = CELL_MAX_W - CELL_PAD_X * 2;
+  const members: Member[] = [
+    ...entities.filter((e) => e.id !== rootId).map((e) => ({ ...e, kind: 'entity' as const })),
+    ...valueObjects.map((v) => ({ ...v, kind: 'value-object' as const })),
+  ].map((m) => ({ ...m, lines: wrapText(m.label, wrapW, LABEL_FONT) }));
 
-  const rootName = aggregate?.root;
-  const rootEntity = entities.find(e => e.label === rootName);
-  const rootId = rootEntity?.id;
+  const widestLabel = members.reduce(
+    (max, m) => Math.max(max, ...m.lines.map((l) => measureText(l, LABEL_FONT))),
+    0,
+  );
+  const cellW = Math.round(
+    Math.min(CELL_MAX_W, Math.max(CELL_MIN_W, widestLabel + CELL_PAD_X * 2)),
+  );
+  const maxLines = members.reduce((max, m) => Math.max(max, m.lines.length), 1);
+  const cellH = CELL_PAD_Y * 2 + maxLines * lineHeight(LABEL_FONT.size) + 4 + TYPE_FONT_SIZE;
 
-  if (rootId) {
-    entities.forEach(e => {
-      if (e.id !== rootId) g.setEdge(rootId, e.id, { minlen: 1 });
-    });
-    valueObjects.forEach(v => {
-      g.setEdge(rootId, v.id, { minlen: 1 });
-    });
+  const { cols, rows } = gridDimensions(members.length, cellW, CELL_GAP, TARGET_GRID_W);
+  const gridW = cols > 0 ? cols * cellW + (cols - 1) * CELL_GAP : 0;
+  const gridH = rows > 0 ? rows * cellH + (rows - 1) * CELL_GAP : 0;
+
+  const contentW = Math.max(gridW, rootId ? ROOT_MIN_W : 0, 320);
+
+  // ---- Invariants band: measure/wrap so it can extend the aggregate box ------------
+  const invWrapW = Math.min(contentW, INV_MAX_TEXT_COL) - INV_PAD * 2 - INV_BULLET_INDENT;
+  const invItemLines: string[][] = [];
+  let invBandH = 0;
+  if (invariants.length > 0) {
+    invBandH = INV_GAP_ABOVE + lineHeight(INV_TITLE_FONT) + INV_TITLE_GAP;
+    for (const inv of invariants) {
+      const full = inv.name ? `${inv.name} — ${inv.text}` : inv.text;
+      const lines = wrapText(full, invWrapW, { size: INV_FONT });
+      invItemLines.push(lines);
+      invBandH += lines.length * lineHeight(INV_FONT) + INV_ITEM_GAP;
+    }
+    invBandH += INV_BAND_BOTTOM_PAD - INV_ITEM_GAP;
   }
 
-  dagre.layout(g);
-
-  let graphW = g.graph().width || 0;
-  let graphH = g.graph().height || 0;
-
-  const innerGridW = Math.max(graphW, 300);
-  const innerGridH = Math.max(graphH, 100);
-
+  // ---- Overall geometry ----------------------------------------------------------
   const aggX = MARGIN;
   const aggY = MARGIN + (title ? TITLE_HEIGHT : 0);
-  const aggW = innerGridW + AGG_PADDING * 2;
-  const aggH = (aggregate ? AGG_HEADER : 0) + innerGridH + AGG_PADDING * 2;
+  const aggW = contentW + AGG_PADDING * 2;
+
+  const bodyTop = aggY + AGG_HEADER + AGG_PADDING;
+  const rootBottom = rootId ? bodyTop + ROOT_H + ROOT_TO_GRID_GAP : bodyTop;
+  const gridBottom = rootBottom + gridH;
+  const aggH = gridBottom + invBandH + AGG_PADDING - aggY;
 
   const legendH = 30;
   const totalW = aggX + aggW + MARGIN;
@@ -127,6 +120,7 @@ export function render(db: D5AggregateDb, container: SVGSVGElement): void {
     container.appendChild(titleEl);
   }
 
+  // ---- Aggregate boundary ------------------------------------------------------
   if (aggregate) {
     const aggGroup = document.createElementNS(SVG_NS, 'g');
     aggGroup.setAttribute('class', 'd5-aggregate');
@@ -155,191 +149,196 @@ export function render(db: D5AggregateDb, container: SVGSVGElement): void {
     container.appendChild(aggGroup);
   }
 
-  const graphStartX = aggX + (aggW - graphW) / 2;
-  const graphStartY = aggY + (aggregate ? AGG_HEADER : 0) + AGG_PADDING;
+  const contentX = aggX + AGG_PADDING;
 
-  g.edges().forEach((eInfo) => {
-    const edge = g.edge(eInfo);
-    if (!edge || !edge.points) return;
-
-    const shiftedPoints = edge.points.map((p) => ({
-      x: graphStartX + p.x,
-      y: graphStartY + p.y,
-    }));
-
-    const pathString = generateCurvePath(shiftedPoints);
-
-    const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', pathString);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', '#94a3b8');
-    path.setAttribute('stroke-width', '1.5');
-    path.setAttribute('marker-end', 'url(#d5-arrowhead)');
-    container.appendChild(path);
-  });
-
-  entities.forEach(e => {
-    const node = g.node(e.id);
-    if (!node) return;
-
-    const w = node.width;
-    const h = node.height;
-    const x = graphStartX + node.x - w / 2;
-    const y = graphStartY + node.y - h / 2;
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-
-    const group = document.createElementNS(SVG_NS, 'g');
-    group.setAttribute('class', e.id === rootId ? 'd5-entity d5-aggregate-root' : 'd5-entity');
+  // ---- Root card ------------------------------------------------------------------
+  if (rootId && aggregate) {
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('class', 'd5-entity d5-aggregate-root');
 
     const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', String(x));
-    rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(w));
-    rect.setAttribute('height', String(h));
-    rect.setAttribute('rx', '6');
-    rect.setAttribute('fill', 'white');
+    rect.setAttribute('x', String(contentX));
+    rect.setAttribute('y', String(bodyTop));
+    rect.setAttribute('width', String(contentW));
+    rect.setAttribute('height', String(ROOT_H));
+    rect.setAttribute('rx', '8');
+    rect.setAttribute('fill', '#eff6ff');
     rect.setAttribute('stroke', '#3b82f6');
-    rect.setAttribute('stroke-width', e.id === rootId ? '3' : '2');
-    group.appendChild(rect);
+    rect.setAttribute('stroke-width', '3');
+    g.appendChild(rect);
 
-    const labelText = document.createElementNS(SVG_NS, 'text');
-    labelText.setAttribute('x', String(cx));
-    labelText.setAttribute('y', String(cy - 2));
-    labelText.setAttribute('text-anchor', 'middle');
-    labelText.setAttribute('font-size', '13');
-    labelText.setAttribute('font-weight', e.id === rootId ? 'bold' : '600');
-    labelText.setAttribute('fill', '#1e293b');
-    labelText.textContent = e.label;
-    group.appendChild(labelText);
+    const cx = contentX + contentW / 2;
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.setAttribute('x', String(cx));
+    label.setAttribute('y', String(bodyTop + 25));
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('font-size', '15');
+    label.setAttribute('font-weight', 'bold');
+    label.setAttribute('fill', '#1e293b');
+    label.textContent = aggregate.root;
+    g.appendChild(label);
 
-    const typeText = document.createElementNS(SVG_NS, 'text');
-    typeText.setAttribute('x', String(cx));
-    typeText.setAttribute('y', String(cy + 14));
-    typeText.setAttribute('text-anchor', 'middle');
-    typeText.setAttribute('font-size', '10');
-    typeText.setAttribute('font-style', 'italic');
-    typeText.setAttribute('fill', '#3b82f6');
-    typeText.textContent = e.id === rootId ? 'Root Entity' : 'Entity';
-    group.appendChild(typeText);
+    const type = document.createElementNS(SVG_NS, 'text');
+    type.setAttribute('x', String(cx));
+    type.setAttribute('y', String(bodyTop + 43));
+    type.setAttribute('text-anchor', 'middle');
+    type.setAttribute('font-size', String(TYPE_FONT_SIZE));
+    type.setAttribute('font-style', 'italic');
+    type.setAttribute('fill', '#3b82f6');
+    type.textContent = 'Aggregate Root';
+    g.appendChild(type);
 
-    container.appendChild(group);
-  });
+    container.appendChild(g);
+  }
 
-  valueObjects.forEach(v => {
-    const node = g.node(v.id);
-    if (!node) return;
+  // ---- Member grid -------------------------------------------------------------
+  const gridX = contentX + (contentW - gridW) / 2;
+  members.forEach((m, i) => {
+    const col = i % cols;
+    const row = Math.floor(i / cols);
+    const x = gridX + col * (cellW + CELL_GAP);
+    const y = rootBottom + row * (cellH + CELL_GAP);
+    const cx = x + cellW / 2;
+    const isEntity = m.kind === 'entity';
 
-    const w = node.width;
-    const h = node.height;
-    const x = graphStartX + node.x - w / 2;
-    const y = graphStartY + node.y - h / 2;
-    const cx = x + w / 2;
-    const cy = y + h / 2;
-
-    const group = document.createElementNS(SVG_NS, 'g');
-    group.setAttribute('class', 'd5-value-object');
+    const g = document.createElementNS(SVG_NS, 'g');
+    g.setAttribute('class', isEntity ? 'd5-entity' : 'd5-value-object');
 
     const rect = document.createElementNS(SVG_NS, 'rect');
     rect.setAttribute('x', String(x));
     rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(w));
-    rect.setAttribute('height', String(h));
-    rect.setAttribute('rx', String(h / 2));
+    rect.setAttribute('width', String(cellW));
+    rect.setAttribute('height', String(cellH));
+    rect.setAttribute('rx', String(isEntity ? 6 : cellH / 2));
     rect.setAttribute('fill', 'white');
-    rect.setAttribute('stroke', '#10b981');
+    rect.setAttribute('stroke', isEntity ? '#3b82f6' : '#10b981');
     rect.setAttribute('stroke-width', '2');
-    group.appendChild(rect);
+    g.appendChild(rect);
 
-    const labelText = document.createElementNS(SVG_NS, 'text');
-    labelText.setAttribute('x', String(cx));
-    labelText.setAttribute('y', String(cy - 2));
-    labelText.setAttribute('text-anchor', 'middle');
-    labelText.setAttribute('font-size', '13');
-    labelText.setAttribute('font-weight', '600');
-    labelText.setAttribute('fill', '#1e293b');
-    labelText.textContent = v.label;
-    group.appendChild(labelText);
+    const lh = lineHeight(LABEL_FONT.size);
+    const blockH = m.lines.length * lh + 4 + TYPE_FONT_SIZE;
+    let ty = y + (cellH - blockH) / 2 + LABEL_FONT.size * 0.85;
+    m.lines.forEach((ln) => {
+      const t = document.createElementNS(SVG_NS, 'text');
+      t.setAttribute('x', String(cx));
+      t.setAttribute('y', String(ty));
+      t.setAttribute('text-anchor', 'middle');
+      t.setAttribute('font-size', String(LABEL_FONT.size));
+      t.setAttribute('font-weight', '600');
+      t.setAttribute('fill', '#1e293b');
+      t.textContent = ln;
+      g.appendChild(t);
+      ty += lh;
+    });
 
-    const typeText = document.createElementNS(SVG_NS, 'text');
-    typeText.setAttribute('x', String(cx));
-    typeText.setAttribute('y', String(cy + 14));
-    typeText.setAttribute('text-anchor', 'middle');
-    typeText.setAttribute('font-size', '10');
-    typeText.setAttribute('font-style', 'italic');
-    typeText.setAttribute('fill', '#10b981');
-    typeText.textContent = 'Value Object';
-    group.appendChild(typeText);
+    const type = document.createElementNS(SVG_NS, 'text');
+    type.setAttribute('x', String(cx));
+    type.setAttribute('y', String(ty + 2));
+    type.setAttribute('text-anchor', 'middle');
+    type.setAttribute('font-size', String(TYPE_FONT_SIZE));
+    type.setAttribute('font-style', 'italic');
+    type.setAttribute('fill', isEntity ? '#3b82f6' : '#10b981');
+    type.textContent = isEntity ? 'Entity' : 'Value Object';
+    g.appendChild(type);
 
-    container.appendChild(group);
+    container.appendChild(g);
   });
 
+  // ---- Invariants band ---------------------------------------------------------
+  if (invariants.length > 0) {
+    const bandX = aggX + INV_PAD;
+    const bandRight = aggX + aggW - INV_PAD;
+    let y = gridBottom + INV_GAP_ABOVE;
+
+    const invGroup = document.createElementNS(SVG_NS, 'g');
+    invGroup.setAttribute('class', 'd5-invariants');
+
+    const backing = document.createElementNS(SVG_NS, 'rect');
+    backing.setAttribute('x', String(bandX - 8));
+    backing.setAttribute('y', String(y - 12));
+    backing.setAttribute('width', String(bandRight - bandX + 16));
+    backing.setAttribute('height', String(invBandH - INV_GAP_ABOVE + 12));
+    backing.setAttribute('rx', '6');
+    backing.setAttribute('fill', '#fffbeb');
+    backing.setAttribute('stroke', '#fcd34d');
+    backing.setAttribute('stroke-width', '1');
+    backing.setAttribute('stroke-dasharray', '4 3');
+    invGroup.appendChild(backing);
+
+    const heading = document.createElementNS(SVG_NS, 'text');
+    heading.setAttribute('x', String(bandX));
+    heading.setAttribute('y', String(y + INV_TITLE_FONT * 0.9));
+    heading.setAttribute('font-size', String(INV_TITLE_FONT));
+    heading.setAttribute('font-weight', 'bold');
+    heading.setAttribute('fill', '#92400e');
+    heading.textContent = aggregate?.root
+      ? `Invariants — enforced by root: ${aggregate.root}`
+      : 'Invariants';
+    invGroup.appendChild(heading);
+
+    y += lineHeight(INV_TITLE_FONT) + INV_TITLE_GAP;
+
+    const lh = lineHeight(INV_FONT);
+    invItemLines.forEach((lines) => {
+      const ms = 6;
+      const marker = document.createElementNS(SVG_NS, 'rect');
+      marker.setAttribute('x', String(bandX + 1));
+      marker.setAttribute('y', String(y - ms));
+      marker.setAttribute('width', String(ms));
+      marker.setAttribute('height', String(ms));
+      marker.setAttribute('transform', `rotate(45 ${bandX + 1 + ms / 2} ${y - ms + ms / 2})`);
+      marker.setAttribute('fill', '#f59e0b');
+      invGroup.appendChild(marker);
+
+      lines.forEach((ln, i) => {
+        const t = document.createElementNS(SVG_NS, 'text');
+        t.setAttribute('x', String(bandX + INV_BULLET_INDENT));
+        t.setAttribute('y', String(y + i * lh));
+        t.setAttribute('font-size', String(INV_FONT));
+        t.setAttribute('fill', '#78350f');
+        t.textContent = ln;
+        invGroup.appendChild(t);
+      });
+      y += lines.length * lh + INV_ITEM_GAP;
+    });
+
+    container.appendChild(invGroup);
+  }
+
+  // ---- Legend ----------------------------------------------------------------
   const legendY = aggY + aggH + 16;
   const legendGroup = document.createElementNS(SVG_NS, 'g');
   legendGroup.setAttribute('class', 'd5-legend');
 
+  const legendItems: { label: string; stroke: string; width: number; rx: number }[] = [
+    { label: 'Aggregate Root', stroke: '#3b82f6', width: 3, rx: 3 },
+    { label: 'Entity', stroke: '#3b82f6', width: 2, rx: 3 },
+    { label: 'Value Object', stroke: '#10b981', width: 2, rx: 7 },
+  ];
+
   let legendX = aggX;
+  legendItems.forEach((item) => {
+    const swatch = document.createElementNS(SVG_NS, 'rect');
+    swatch.setAttribute('x', String(legendX));
+    swatch.setAttribute('y', String(legendY));
+    swatch.setAttribute('width', '14');
+    swatch.setAttribute('height', '14');
+    swatch.setAttribute('rx', String(item.rx));
+    swatch.setAttribute('fill', 'white');
+    swatch.setAttribute('stroke', item.stroke);
+    swatch.setAttribute('stroke-width', String(item.width));
+    legendGroup.appendChild(swatch);
 
-  const rootSwatch = document.createElementNS(SVG_NS, 'rect');
-  rootSwatch.setAttribute('x', String(legendX));
-  rootSwatch.setAttribute('y', String(legendY));
-  rootSwatch.setAttribute('width', '14');
-  rootSwatch.setAttribute('height', '14');
-  rootSwatch.setAttribute('rx', '3');
-  rootSwatch.setAttribute('fill', 'white');
-  rootSwatch.setAttribute('stroke', '#3b82f6');
-  rootSwatch.setAttribute('stroke-width', '3');
-  legendGroup.appendChild(rootSwatch);
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.setAttribute('x', String(legendX + 20));
+    label.setAttribute('y', String(legendY + 11));
+    label.setAttribute('font-size', '11');
+    label.setAttribute('fill', '#64748b');
+    label.textContent = item.label;
+    legendGroup.appendChild(label);
 
-  const rootLabel = document.createElementNS(SVG_NS, 'text');
-  rootLabel.setAttribute('x', String(legendX + 20));
-  rootLabel.setAttribute('y', String(legendY + 11));
-  rootLabel.setAttribute('font-size', '11');
-  rootLabel.setAttribute('fill', '#64748b');
-  rootLabel.textContent = 'Root Entity';
-  legendGroup.appendChild(rootLabel);
-
-  legendX += 100;
-
-  const entSwatch = document.createElementNS(SVG_NS, 'rect');
-  entSwatch.setAttribute('x', String(legendX));
-  entSwatch.setAttribute('y', String(legendY));
-  entSwatch.setAttribute('width', '14');
-  entSwatch.setAttribute('height', '14');
-  entSwatch.setAttribute('rx', '3');
-  entSwatch.setAttribute('fill', 'white');
-  entSwatch.setAttribute('stroke', '#3b82f6');
-  entSwatch.setAttribute('stroke-width', '2');
-  legendGroup.appendChild(entSwatch);
-
-  const entLabel = document.createElementNS(SVG_NS, 'text');
-  entLabel.setAttribute('x', String(legendX + 20));
-  entLabel.setAttribute('y', String(legendY + 11));
-  entLabel.setAttribute('font-size', '11');
-  entLabel.setAttribute('fill', '#64748b');
-  entLabel.textContent = 'Entity';
-  legendGroup.appendChild(entLabel);
-
-  legendX += 80;
-
-  const voSwatch = document.createElementNS(SVG_NS, 'rect');
-  voSwatch.setAttribute('x', String(legendX));
-  voSwatch.setAttribute('y', String(legendY));
-  voSwatch.setAttribute('width', '14');
-  voSwatch.setAttribute('height', '14');
-  voSwatch.setAttribute('rx', '7');
-  voSwatch.setAttribute('fill', 'white');
-  voSwatch.setAttribute('stroke', '#10b981');
-  voSwatch.setAttribute('stroke-width', '2');
-  legendGroup.appendChild(voSwatch);
-
-  const voLabel = document.createElementNS(SVG_NS, 'text');
-  voLabel.setAttribute('x', String(legendX + 20));
-  voLabel.setAttribute('y', String(legendY + 11));
-  voLabel.setAttribute('font-size', '11');
-  voLabel.setAttribute('fill', '#64748b');
-  voLabel.textContent = 'Value Object';
-  legendGroup.appendChild(voLabel);
+    legendX += 26 + measureText(item.label, { size: 11 }) + 22;
+  });
 
   container.appendChild(legendGroup);
 }

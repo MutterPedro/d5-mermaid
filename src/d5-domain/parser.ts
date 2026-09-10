@@ -1,4 +1,5 @@
 import { D5DomainDb, type SubdomainType } from './db.js';
+import { DIRECTION_RE } from '../shared/direction.js';
 
 const TITLE_RE = /^\s*title\s+(.+)$/;
 const DOMAIN_RE = /^\s*Domain\(\s*(\w+)\s*,\s*"([^"]+)"\s*\)\s*\{/;
@@ -23,7 +24,9 @@ export function parse(text: string, db: D5DomainDb): void {
 
     let m: RegExpMatchArray | null;
 
-    if ((m = line.match(TITLE_RE))) {
+    if ((m = line.match(DIRECTION_RE))) {
+      db.setDirection(m[1]);
+    } else if ((m = line.match(TITLE_RE))) {
       db.setTitle(m[1].trim());
     } else if ((m = line.match(DOMAIN_RE))) {
       db.setDomain(m[1], m[2]);
