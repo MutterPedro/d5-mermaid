@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>D5 Mermaid — Example Gallery</title>
+  <style>
+    :root { color-scheme: light; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 40px 20px 120px;
+      line-height: 1.6;
+      color: #1e293b;
+      background: #fff;
+    }
+    h1 { margin-bottom: 4px; }
+    .sub { color: #64748b; margin-top: 0; }
+    h2.group {
+      margin-top: 48px;
+      padding-bottom: 6px;
+      border-bottom: 2px solid #cbd5e1;
+      scroll-margin-top: 12px;
+    }
+    .diagram-card { scroll-margin-top: 12px; }
+    #toc {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 14px 18px;
+      margin: 18px 0 8px;
+      background: #f8fafc;
+      font-size: 13px;
+    }
+    #toc > strong { display: block; margin-bottom: 10px; font-size: 13px; color: #334155; }
+    #toc > ul { margin: 0; padding: 0; list-style: none; columns: 3; column-gap: 28px; }
+    #toc > ul > li { break-inside: avoid; margin-bottom: 12px; }
+    #toc > ul > li > a { font-weight: 600; color: #1e293b; text-decoration: none; }
+    #toc ul ul { margin: 3px 0 0; padding-left: 14px; list-style: none; }
+    #toc ul ul a { color: #2563eb; text-decoration: none; }
+    #toc a:hover { text-decoration: underline; }
+    @media (max-width: 900px) { #toc > ul { columns: 1; } }
+    .diagram-card {
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      margin: 24px 0;
+      overflow: hidden;
+    }
+    .diagram-card > h3 {
+      margin: 0;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 15px;
+    }
+    .diagram-card .note {
+      padding: 8px 16px;
+      font-size: 13px;
+      color: #475569;
+      background: #fcfdff;
+      border-bottom: 1px dashed #e2e8f0;
+    }
+    .diagram-card .note a { color: #2563eb; }
+    .render-area {
+      display: flex;
+      justify-content: center;
+      padding: 20px;
+      overflow-x: auto;
+      background: #fff;
+    }
+    .render-area svg { max-width: 100%; height: auto; }
+    details { padding: 8px 16px 14px; background: #f8fafc; border-top: 1px solid #e2e8f0; }
+    summary { cursor: pointer; font-size: 13px; color: #64748b; }
+    pre {
+      background: #0f172a;
+      color: #e2e8f0;
+      padding: 14px;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .err {
+      color: #b91c1c;
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      padding: 12px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      white-space: pre-wrap;
+    }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+  </style>
+</head>
+<body>
+  <h1>D5 Mermaid — Example Gallery</h1>
+  <p class="sub">Real-world DDD models rendered with the local <code>dist/</code> build. Used to
+  stress-test layout (text overflow, arrow/box overlap) and to spot syntax improvements.</p>
+
+  <nav id="toc" hidden></nav>
+  <div id="gallery">Loading…</div>
+
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+    // Manifest — extended one example at a time.
+    const MANIFEST = [
+      {
+        group: 'Example 1 — citerus/dddsample-core (Cargo Shipping)',
+        items: [
+          { title: 'Domain view',                 path: 'dddsample-core/domain.md' },
+          { title: 'Subdomain view (context map)', path: 'dddsample-core/subdomain.md' },
+          { title: 'Context view — Booking',       path: 'dddsample-core/context-booking.md' },
+          { title: 'Aggregate view — Cargo',       path: 'dddsample-core/aggregate-cargo.md' },
+          { title: 'Aggregate view — Handling Event', path: 'dddsample-core/aggregate-handling-event.md' },
+          { title: 'Aggregate view — Voyage',      path: 'dddsample-core/aggregate-voyage.md' },
+        ],
+      },
+      {
+        group: 'Example 2 — ddd-by-examples/library (Public Library)',
+        items: [
+          { title: 'Domain view',                  path: 'ddd-by-examples-library/domain.md' },
+          { title: 'Subdomain view (context map)',  path: 'ddd-by-examples-library/subdomain.md' },
+          { title: 'Context view — Lending',        path: 'ddd-by-examples-library/context-lending.md' },
+          { title: 'Aggregate view — Patron',       path: 'ddd-by-examples-library/aggregate-patron.md' },
+          { title: 'Aggregate view — Book',         path: 'ddd-by-examples-library/aggregate-book.md' },
+          { title: 'Aggregate view — Library Branch', path: 'ddd-by-examples-library/aggregate-library-branch.md' },
+        ],
+      },
+      {
+        group: 'Example 3 — VaughnVernon/IDDD_Samples (SaaSOvation)',
+        items: [
+          { title: 'Domain view',                 path: 'vernon-iddd-samples/domain.md' },
+          { title: 'Subdomain view (context map)', path: 'vernon-iddd-samples/subdomain.md' },
+          { title: 'Context view — Agile PM',      path: 'vernon-iddd-samples/context-agile-pm.md' },
+          { title: 'Aggregate view — Backlog Item', path: 'vernon-iddd-samples/aggregate-backlog-item.md' },
+          { title: 'Aggregate view — Product',     path: 'vernon-iddd-samples/aggregate-product.md' },
+          { title: 'Aggregate view — Sprint',      path: 'vernon-iddd-samples/aggregate-sprint.md' },
+        ],
+      },
+      {
+        group: 'Example 4 — dotnet-architecture/eShopOnContainers (eShop)',
+        items: [
+          { title: 'Domain view',                  path: 'dotnet-eshoponcontainers/domain.md' },
+          { title: 'Subdomain view (context map)',  path: 'dotnet-eshoponcontainers/subdomain.md' },
+          { title: 'Context view — Ordering',       path: 'dotnet-eshoponcontainers/context-ordering.md' },
+          { title: 'Aggregate view — Order',        path: 'dotnet-eshoponcontainers/aggregate-order.md' },
+          { title: 'Aggregate view — Buyer',        path: 'dotnet-eshoponcontainers/aggregate-buyer.md' },
+          { title: 'Aggregate view — Catalog Item', path: 'dotnet-eshoponcontainers/aggregate-catalog-item.md' },
+        ],
+      },
+      {
+        group: 'Example 5 — Wolff, Microservices (Webshop)',
+        items: [
+          { title: 'Domain view',                  path: 'wolff-microservices/domain.md' },
+          { title: 'Subdomain view (context map)',  path: 'wolff-microservices/subdomain.md' },
+          { title: 'Context view — Order',          path: 'wolff-microservices/context-order.md' },
+          { title: 'Aggregate view — Order',        path: 'wolff-microservices/aggregate-order.md' },
+          { title: 'Aggregate view — Invoice',      path: 'wolff-microservices/aggregate-invoice.md' },
+          { title: 'Aggregate view — Delivery',     path: 'wolff-microservices/aggregate-delivery.md' },
+        ],
+      },
+      {
+        group: 'Example 6 — Nick Tune Core Domain Chart (Fashion Retailer)',
+        items: [
+          { title: 'Domain view',                  path: 'nick-tune-core-domain-chart/domain.md' },
+          { title: 'Subdomain view (context map)',  path: 'nick-tune-core-domain-chart/subdomain.md' },
+          { title: 'Context view — Pricing',        path: 'nick-tune-core-domain-chart/context-pricing.md' },
+          { title: 'Aggregate view — Price Rule',   path: 'nick-tune-core-domain-chart/aggregate-price-rule.md' },
+          { title: 'Aggregate view — Promotion',    path: 'nick-tune-core-domain-chart/aggregate-promotion.md' },
+        ],
+      },
+      {
+        group: 'Example 7 — ddd-by-examples/all-things-cqrs (Credit Card)',
+        items: [
+          { title: 'Domain view',                  path: 'all-things-cqrs/domain.md' },
+          { title: 'Subdomain view (context map)',  path: 'all-things-cqrs/subdomain.md' },
+          { title: 'Context view — Credit Card',    path: 'all-things-cqrs/context-credit-card.md' },
+          { title: 'Aggregate view — Credit Card',  path: 'all-things-cqrs/aggregate-credit-card.md' },
+        ],
+      },
+    ];
+
+    const slug = (s) =>
+      s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+    function buildToc() {
+      const toc = document.getElementById('toc');
+      toc.hidden = false;
+      const parts = ['<strong>Jump to</strong><ul>'];
+      MANIFEST.forEach((group, gi) => {
+        const gid = `ex-${gi + 1}`;
+        parts.push(`<li><a href="#${gid}">${group.group}</a><ul>`);
+        group.items.forEach((item) => {
+          parts.push(
+            `<li><a href="#${gid}-${slug(item.title)}">${item.title}</a></li>`,
+          );
+        });
+        parts.push('</ul></li>');
+      });
+      parts.push('</ul>');
+      toc.innerHTML = parts.join('');
+    }
+
+    function extractBlock(md) {
+      // first fenced code block; tolerate ```d5 / ```mermaid / ``` fences
+      const m = md.match(/```[^\n]*\n([\s\S]*?)```/);
+      const body = m ? m[1] : md;
+      return body.replace(/\s+$/, '');
+    }
+    function extractNote(md) {
+      // first non-heading, non-empty prose line(s) before the fence
+      const beforeFence = md.split('```')[0];
+      return beforeFence
+        .split('\n')
+        .filter((l) => l.trim() && !l.startsWith('#'))
+        .join(' ')
+        .trim();
+    }
+
+    async function main() {
+      const { d5Diagrams } = await import('../dist/index.js?v=' + Date.now());
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+      await mermaid.registerExternalDiagrams(d5Diagrams);
+
+      buildToc();
+
+      const root = document.getElementById('gallery');
+      root.innerHTML = '';
+      let idx = 0;
+
+      for (let gi = 0; gi < MANIFEST.length; gi++) {
+        const group = MANIFEST[gi];
+        const gid = `ex-${gi + 1}`;
+        const h2 = document.createElement('h2');
+        h2.className = 'group';
+        h2.id = gid;
+        h2.textContent = group.group;
+        root.appendChild(h2);
+
+        for (const item of group.items) {
+          const card = document.createElement('div');
+          card.className = 'diagram-card';
+          card.id = `${gid}-${slug(item.title)}`;
+
+          const h3 = document.createElement('h3');
+          h3.textContent = item.title;
+          card.appendChild(h3);
+
+          let raw = '';
+          try {
+            const res = await fetch(item.path);
+            if (!res.ok) throw new Error(`fetch ${item.path} → ${res.status}`);
+            raw = await res.text();
+          } catch (e) {
+            const err = document.createElement('div');
+            err.className = 'err';
+            err.textContent = String(e);
+            card.appendChild(err);
+            root.appendChild(card);
+            continue;
+          }
+
+          const note = extractNote(raw);
+          if (note) {
+            const n = document.createElement('div');
+            n.className = 'note';
+            n.innerHTML = note.replace(
+              /\[([^\]]+)\]\((https?:[^)]+)\)/g,
+              '<a href="$2" target="_blank" rel="noreferrer">$1</a>',
+            );
+            card.appendChild(n);
+          }
+
+          const diagramSrc = extractBlock(raw);
+          const area = document.createElement('div');
+          area.className = 'render-area';
+          card.appendChild(area);
+
+          const det = document.createElement('details');
+          const sum = document.createElement('summary');
+          sum.textContent = 'D5 source';
+          det.appendChild(sum);
+          const pre = document.createElement('pre');
+          pre.textContent = diagramSrc;
+          det.appendChild(pre);
+          card.appendChild(det);
+
+          root.appendChild(card);
+
+          const renderId = 'd5-gallery-' + idx++;
+          try {
+            const { svg } = await mermaid.render(renderId, diagramSrc);
+            area.innerHTML = svg;
+          } catch (e) {
+            area.innerHTML = '';
+            const err = document.createElement('div');
+            err.className = 'err';
+            err.textContent = 'Render error: ' + (e && e.message ? e.message : String(e));
+            area.appendChild(err);
+          }
+        }
+      }
+    }
+
+    main().catch((e) => {
+      document.getElementById('gallery').innerHTML =
+        '<div class="err">' + String(e) + '\n\nServe this over http (not file://). From d5-mermaid/: npx http-server . -p 3000 -c-1</div>';
+    });
+  </script>
+</body>
+</html>

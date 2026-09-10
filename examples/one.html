@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>D5 one</title>
+  <style>
+    html, body { margin: 0; padding: 0; background: #fff; }
+    #wrap { display: inline-block; padding: 12px; }
+    svg { display: block; }
+    .err { color: #b91c1c; font: 13px monospace; padding: 16px; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div id="wrap">loading…</div>
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+    const params = new URLSearchParams(location.search);
+    const path = params.get('m');
+    async function run() {
+      const { d5Diagrams } = await import('../dist/index.js?v=' + Date.now());
+      mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+      await mermaid.registerExternalDiagrams(d5Diagrams);
+      const md = await (await fetch(path)).text();
+      const m = md.match(/```[^\n]*\n([\s\S]*?)```/);
+      const src = (m ? m[1] : md).replace(/\s+$/, '');
+      try {
+        const { svg } = await mermaid.render('one-svg', src);
+        document.getElementById('wrap').innerHTML = svg;
+        const s = document.querySelector('svg');
+        window.__svgSize = { w: s.getBoundingClientRect().width, h: s.getBoundingClientRect().height, vb: s.getAttribute('viewBox') };
+      } catch (e) {
+        document.getElementById('wrap').innerHTML = '<div class="err">' + (e && e.message || e) + '</div>';
+      }
+    }
+    run();
+  </script>
+</body>
+</html>
