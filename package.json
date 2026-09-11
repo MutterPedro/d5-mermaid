@@ -1,6 +1,6 @@
 {
   "name": "d5-mermaid",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Mermaid.js extension for D5 (Domain Driven Design Definitive Diagrams) — visualize DDD strategic and tactical patterns",
   "type": "module",
   "repository": {
