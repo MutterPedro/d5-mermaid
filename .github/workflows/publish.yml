@@ -1,23 +1,31 @@
 name: Publish to npm
 
-# Publishes the package whenever the version in package.json is bumped on `main`.
+# Stages the package whenever the version in package.json is bumped on `main`.
 # The version check makes the job idempotent: a push that does not change the
-# version (or re-publishes an existing one) is a no-op.
+# version (or re-stages an already-live one) is a no-op.
 #
 # Auth is via npm Trusted Publishing (OIDC) — https://docs.npmjs.com/trusted-publishers
 # No NPM_TOKEN / long-lived secret: npm CLI exchanges the job's GitHub OIDC
-# token for a short-lived publish token, provided this exact workflow file
+# token for a short-lived token, provided this exact workflow file
 # (.github/workflows/publish.yml) is registered as a trusted publisher for
 # the package on npmjs.com and `permissions.id-token: write` is set below.
 # Requires npm CLI >= 11.5.1 and Node >= 22.14.0 (hence the explicit npm
 # upgrade step — the version bundled with setup-node's Node install may be
 # older than that).
 #
-# The published tarball is kept minimal: package.json `files` only allow-lists
+# This trusted publisher is only authorised for `npm stage publish`, not a
+# direct `npm publish` (npm's "staged publishing" — see
+# https://docs.npmjs.com/staged-publishing). CI cannot go further than
+# staging: approving a staged package requires 2FA / proof of presence, which
+# only a human can provide, via `npm stage approve <stage-id>` or the
+# "Staged Packages" tab on npmjs.com. `npm stage publish` itself needs no
+# 2FA and works fine under OIDC.
+#
+# The staged tarball is kept minimal: package.json `files` only allow-lists
 # the built JS/typings in dist/ (no .map files, no test/example/preview
 # sources — see npm pack --dry-run to verify), and devDependencies are pruned
-# from node_modules before `npm publish` so the publish step runs with only
-# production dependencies installed.
+# from node_modules before staging so that step runs with only production
+# dependencies installed.
 
 on:
   push:
@@ -49,7 +57,7 @@ jobs:
 
       - run: npm test
 
-      - name: Check whether this version is already published
+      - name: Check whether this version is already live
         id: check
         run: |
           NAME=$(node -p "require('./package.json').name")
@@ -66,20 +74,37 @@ jobs:
       - if: steps.check.outputs.exists == 'false'
         run: npm run build
 
-      # Drop devDependencies so the publish step runs with only production
-      # dependencies present. `npm publish` never ships node_modules either
-      # way — this is a defence-in-depth / explicitness step, not what keeps
-      # the tarball small (the `files` allow-list in package.json does that).
+      # Drop devDependencies so the stage step runs with only production
+      # dependencies present. The staged tarball never contains node_modules
+      # either way — this is a defence-in-depth / explicitness step, not
+      # what keeps it small (the `files` allow-list in package.json does).
       - if: steps.check.outputs.exists == 'false'
         run: npm prune --omit=dev
 
       # --ignore-scripts: skip prepublishOnly (it re-runs the build, which
       # would fail now that devDependencies were pruned) — dist/ is already
-      # built above. No token/env needed: npm authenticates via OIDC.
+      # built above. No token/env needed: npm authenticates via OIDC. This
+      # only stages the package — see the header comment for why, and the
+      # summary step below for how to approve it.
       - if: steps.check.outputs.exists == 'false'
         run: |
-          echo "Publishing ${{ steps.check.outputs.name }}@${{ steps.check.outputs.version }}"
-          npm publish --ignore-scripts --access public
+          echo "Staging ${{ steps.check.outputs.name }}@${{ steps.check.outputs.version }}"
+          npm stage publish --ignore-scripts --access public
+
+      - name: Print approval instructions
+        if: steps.check.outputs.exists == 'false'
+        run: |
+          echo "## Staged — needs manual approval" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "\`${{ steps.check.outputs.name }}@${{ steps.check.outputs.version }}\` was submitted to npm's staging area, not published live — this trusted publisher is only authorised for \`npm stage publish\`." >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Approve it with 2FA, from your own machine:" >> "$GITHUB_STEP_SUMMARY"
+          echo '```bash' >> "$GITHUB_STEP_SUMMARY"
+          echo "npm stage list ${{ steps.check.outputs.name }}   # find the stage-id" >> "$GITHUB_STEP_SUMMARY"
+          echo "npm stage approve <stage-id>" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "...or open the **Staged Packages** tab on npmjs.com and click **Approve**." >> "$GITHUB_STEP_SUMMARY"
 
       - if: steps.check.outputs.exists == 'true'
-        run: echo "${{ steps.check.outputs.name }}@${{ steps.check.outputs.version }} is already published — nothing to do."
+        run: echo "${{ steps.check.outputs.name }}@${{ steps.check.outputs.version }} is already live — nothing to do."
