@@ -4,6 +4,15 @@ name: Publish to npm
 # The version check makes the job idempotent: a push that does not change the
 # version (or re-publishes an existing one) is a no-op.
 #
+# Auth is via npm Trusted Publishing (OIDC) — https://docs.npmjs.com/trusted-publishers
+# No NPM_TOKEN / long-lived secret: npm CLI exchanges the job's GitHub OIDC
+# token for a short-lived publish token, provided this exact workflow file
+# (.github/workflows/publish.yml) is registered as a trusted publisher for
+# the package on npmjs.com and `permissions.id-token: write` is set below.
+# Requires npm CLI >= 11.5.1 and Node >= 22.14.0 (hence the explicit npm
+# upgrade step — the version bundled with setup-node's Node install may be
+# older than that).
+#
 # The published tarball is kept minimal: package.json `files` only allow-lists
 # the built JS/typings in dist/ (no .map files, no test/example/preview
 # sources — see npm pack --dry-run to verify), and devDependencies are pruned
@@ -22,13 +31,17 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write # required for OIDC / trusted publishing
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: 'https://registry.npmjs.org'
+
+      - name: Ensure npm >= 11.5.1 (required for trusted publishing)
+        run: npm install -g npm@^11.5.1
 
       - run: npm ci
 
@@ -62,10 +75,8 @@ jobs:
 
       # --ignore-scripts: skip prepublishOnly (it re-runs the build, which
       # would fail now that devDependencies were pruned) — dist/ is already
-      # built above.
+      # built above. No token/env needed: npm authenticates via OIDC.
       - if: steps.check.outputs.exists == 'false'
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           echo "Publishing ${{ steps.check.outputs.name }}@${{ steps.check.outputs.version }}"
           npm publish --ignore-scripts --access public
