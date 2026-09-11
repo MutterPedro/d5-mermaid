@@ -38,14 +38,49 @@ describe('d5-domain parser', () => {
   }
 `, db);
 
-    expect(db.getDomain()).toEqual({ id: 'acme', label: 'ACME Retail' });
+    expect(db.getDomains()).toEqual([{ id: 'acme', label: 'ACME Retail' }]);
 
     const subs = db.getSubdomains();
     expect(subs).toHaveLength(4);
-    expect(subs[0]).toEqual({ id: 'catalog', label: 'Product Catalog', type: 'core' });
-    expect(subs[1]).toEqual({ id: 'ordering', label: 'Order Management', type: 'core' });
-    expect(subs[2]).toEqual({ id: 'inventory', label: 'Inventory', type: 'supporting' });
-    expect(subs[3]).toEqual({ id: 'payments', label: 'Payments', type: 'generic' });
+    expect(subs[0]).toEqual({ id: 'catalog', label: 'Product Catalog', type: 'core', domainId: 'acme' });
+    expect(subs[1]).toEqual({ id: 'ordering', label: 'Order Management', type: 'core', domainId: 'acme' });
+    expect(subs[2]).toEqual({ id: 'inventory', label: 'Inventory', type: 'supporting', domainId: 'acme' });
+    expect(subs[3]).toEqual({ id: 'payments', label: 'Payments', type: 'generic', domainId: 'acme' });
+  });
+
+  it('parses multiple top-level Domain blocks, attributing subdomains and cross-domain Rels correctly', () => {
+    const db = new D5DomainDb();
+    parse(`d5-domain
+  title Two Domains
+
+  Domain(sales, "Sales") {
+    Subdomain(storefront, "Storefront", core)
+  }
+
+  Domain(fulfillment, "Fulfillment") {
+    Subdomain(warehouse, "Warehouse", supporting)
+  }
+
+  Rel(warehouse, storefront, "ships orders placed in")
+`, db);
+
+    expect(db.getDomains()).toEqual([
+      { id: 'sales', label: 'Sales' },
+      { id: 'fulfillment', label: 'Fulfillment' },
+    ]);
+
+    const subs = db.getSubdomains();
+    expect(subs).toEqual([
+      { id: 'storefront', label: 'Storefront', type: 'core', domainId: 'sales' },
+      { id: 'warehouse', label: 'Warehouse', type: 'supporting', domainId: 'fulfillment' },
+    ]);
+
+    const rels = db.getRelationships();
+    expect(rels[0]).toEqual({
+      source: 'warehouse',
+      target: 'storefront',
+      label: 'ships orders placed in',
+    });
   });
 
   it('parses relationships between subdomains', () => {
@@ -97,7 +132,7 @@ describe('d5-domain parser', () => {
   }
 `, db);
 
-    expect(db.getDomain()).toEqual({ id: 'acme', label: 'ACME' });
+    expect(db.getDomains()).toEqual([{ id: 'acme', label: 'ACME' }]);
     expect(db.getSubdomains()).toHaveLength(1);
   });
 });

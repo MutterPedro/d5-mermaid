@@ -15,7 +15,7 @@ describe('d5-domain renderer', () => {
 
   it('renders a title element', () => {
     db.setTitle('My Domain');
-    db.setDomain('acme', 'ACME');
+    db.addDomain('acme', 'ACME');
 
     render(db, container);
 
@@ -25,7 +25,7 @@ describe('d5-domain renderer', () => {
   });
 
   it('renders a domain container with label', () => {
-    db.setDomain('acme', 'ACME Retail');
+    db.addDomain('acme', 'ACME Retail');
 
     render(db, container);
 
@@ -35,10 +35,10 @@ describe('d5-domain renderer', () => {
   });
 
   it('renders subdomains with type-based CSS classes', () => {
-    db.setDomain('acme', 'ACME');
-    db.addSubdomain('catalog', 'Product Catalog', 'core');
-    db.addSubdomain('inventory', 'Inventory', 'supporting');
-    db.addSubdomain('payments', 'Payments', 'generic');
+    db.addDomain('acme', 'ACME');
+    db.addSubdomain('catalog', 'Product Catalog', 'core', 'acme');
+    db.addSubdomain('inventory', 'Inventory', 'supporting', 'acme');
+    db.addSubdomain('payments', 'Payments', 'generic', 'acme');
 
     render(db, container);
 
@@ -58,9 +58,9 @@ describe('d5-domain renderer', () => {
   });
 
   it('renders relationships as labeled edges', () => {
-    db.setDomain('acme', 'ACME');
-    db.addSubdomain('ordering', 'Ordering', 'core');
-    db.addSubdomain('catalog', 'Catalog', 'core');
+    db.addDomain('acme', 'ACME');
+    db.addSubdomain('ordering', 'Ordering', 'core', 'acme');
+    db.addSubdomain('catalog', 'Catalog', 'core', 'acme');
     db.addRelationship('ordering', 'catalog', 'depends on');
 
     render(db, container);
@@ -71,8 +71,8 @@ describe('d5-domain renderer', () => {
   });
 
   it('renders subdomain type labels', () => {
-    db.setDomain('acme', 'ACME');
-    db.addSubdomain('catalog', 'Product Catalog', 'core');
+    db.addDomain('acme', 'ACME');
+    db.addSubdomain('catalog', 'Product Catalog', 'core', 'acme');
 
     render(db, container);
 
@@ -80,13 +80,71 @@ describe('d5-domain renderer', () => {
     expect(svg).toContain('core');
   });
 
+  describe('multiple domains', () => {
+    beforeEach(() => {
+      db.addDomain('sales', 'Sales');
+      db.addSubdomain('storefront', 'Storefront', 'core', 'sales');
+      db.addDomain('fulfillment', 'Fulfillment');
+      db.addSubdomain('warehouse', 'Warehouse', 'supporting', 'fulfillment');
+    });
+
+    it('renders one .d5-domain container per Domain block', () => {
+      render(db, container);
+
+      const domainEls = container.querySelectorAll('.d5-domain');
+      expect(domainEls).toHaveLength(2);
+      expect(domainEls[0].textContent).toContain('Sales');
+      expect(domainEls[1].textContent).toContain('Fulfillment');
+    });
+
+    it('renders subdomains from every domain', () => {
+      render(db, container);
+
+      const subdomains = container.querySelectorAll('.d5-subdomain');
+      expect(subdomains).toHaveLength(2);
+      expect(subdomains[0].textContent).toContain('Storefront');
+      expect(subdomains[1].textContent).toContain('Warehouse');
+    });
+
+    it('stacks domain boxes without overlapping (second domain starts below the first)', () => {
+      render(db, container);
+
+      const rects = Array.from(container.querySelectorAll('.d5-domain rect'));
+      expect(rects).toHaveLength(2);
+      const first = rects[0] as SVGRectElement;
+      const second = rects[1] as SVGRectElement;
+      const firstBottom = Number(first.getAttribute('y')) + Number(first.getAttribute('height'));
+      const secondTop = Number(second.getAttribute('y'));
+      expect(secondTop).toBeGreaterThanOrEqual(firstBottom);
+    });
+
+    it('renders a cross-domain relationship as a labeled edge', () => {
+      db.addRelationship('warehouse', 'storefront', 'ships orders placed in');
+
+      render(db, container);
+
+      const crossRels = container.querySelectorAll('.d5-rel-cross');
+      expect(crossRels).toHaveLength(1);
+      expect(crossRels[0].textContent).toContain('ships orders placed in');
+    });
+
+    it('snapshot: two domains with a cross-domain relationship', () => {
+      db.setTitle('Two Domains');
+      db.addRelationship('warehouse', 'storefront', 'ships orders placed in');
+
+      render(db, container);
+
+      expect(container.innerHTML).toMatchSnapshot();
+    });
+  });
+
   it('snapshot: full domain diagram', () => {
     db.setTitle('ACME Retail Platform');
-    db.setDomain('acme', 'ACME Retail');
-    db.addSubdomain('catalog', 'Product Catalog', 'core');
-    db.addSubdomain('ordering', 'Order Management', 'core');
-    db.addSubdomain('inventory', 'Inventory', 'supporting');
-    db.addSubdomain('payments', 'Payments', 'generic');
+    db.addDomain('acme', 'ACME Retail');
+    db.addSubdomain('catalog', 'Product Catalog', 'core', 'acme');
+    db.addSubdomain('ordering', 'Order Management', 'core', 'acme');
+    db.addSubdomain('inventory', 'Inventory', 'supporting', 'acme');
+    db.addSubdomain('payments', 'Payments', 'generic', 'acme');
     db.addRelationship('ordering', 'catalog', 'depends on');
     db.addRelationship('ordering', 'payments', 'depends on');
 
@@ -97,9 +155,9 @@ describe('d5-domain renderer', () => {
 
   it('snapshot: minimal domain with no relationships', () => {
     db.setTitle('Simple Domain');
-    db.setDomain('simple', 'Simple');
-    db.addSubdomain('core1', 'Core Service', 'core');
-    db.addSubdomain('support1', 'Support Service', 'supporting');
+    db.addDomain('simple', 'Simple');
+    db.addSubdomain('core1', 'Core Service', 'core', 'simple');
+    db.addSubdomain('support1', 'Support Service', 'supporting', 'simple');
 
     render(db, container);
 
@@ -107,8 +165,8 @@ describe('d5-domain renderer', () => {
   });
 
   it('snapshot: domain with single subdomain', () => {
-    db.setDomain('mono', 'Monolith');
-    db.addSubdomain('app', 'Application', 'generic');
+    db.addDomain('mono', 'Monolith');
+    db.addSubdomain('app', 'Application', 'generic', 'mono');
 
     render(db, container);
 

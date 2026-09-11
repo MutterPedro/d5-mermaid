@@ -13,6 +13,8 @@ interface Subdomain {
   id: string;
   label: string;
   type: SubdomainType;
+  /** Which `Domain(...)` block this subdomain was declared in. */
+  domainId: string;
 }
 
 interface Relationship {
@@ -22,7 +24,7 @@ interface Relationship {
 }
 
 export class D5DomainDb {
-  private domain: Domain | undefined;
+  private domains: Domain[] = [];
   private subdomains: Subdomain[] = [];
   private relationships: Relationship[] = [];
   private direction: Direction = DEFAULT_DIRECTION;
@@ -30,20 +32,25 @@ export class D5DomainDb {
   private accTitle: string | undefined;
   private accDescription: string | undefined;
 
-  getDomain(): Domain | undefined {
-    return this.domain;
+  /**
+   * One or more `Domain(...) { ... }` blocks, in declaration order. A diagram most often
+   * has one, but multiple top-level domains are supported — e.g. to show a strategic
+   * dependency between two otherwise-separate businesses on one canvas.
+   */
+  getDomains(): Domain[] {
+    return this.domains;
   }
 
-  setDomain(id: string, label: string): void {
-    this.domain = { id, label };
+  addDomain(id: string, label: string): void {
+    this.domains.push({ id, label });
   }
 
   getSubdomains(): Subdomain[] {
     return this.subdomains;
   }
 
-  addSubdomain(id: string, label: string, type: SubdomainType): void {
-    this.subdomains.push({ id, label, type });
+  addSubdomain(id: string, label: string, type: SubdomainType, domainId: string): void {
+    this.subdomains.push({ id, label, type, domainId });
   }
 
   getRelationships(): Relationship[] {
@@ -65,7 +72,7 @@ export class D5DomainDb {
   }
 
   clear(): void {
-    this.domain = undefined;
+    this.domains = [];
     this.subdomains = [];
     this.relationships = [];
     this.direction = DEFAULT_DIRECTION;

@@ -71,6 +71,28 @@ d5-domain
   Rel(ordering, payments, "depends on")
 ```
 
+A diagram may declare **more than one `Domain(...)` block** — each is laid out
+independently and stacked top-to-bottom in declaration order, so two largely-separate
+businesses can share one canvas. A `Rel` may cross between two different `Domain` blocks;
+one that points back at an earlier domain in the stack is drawn dashed, the same way a
+same-domain relationship that runs against the layout's flow is:
+
+```
+d5-domain
+  title Mobility & Delivery
+
+  Domain(mobility, "Mobility") {
+    Subdomain(ride_matching, "Ride Matching", core)
+    Subdomain(driver_identity, "Driver Identity & Payouts", generic)
+  }
+
+  Domain(delivery, "Delivery") {
+    Subdomain(courier_dispatch, "Courier Dispatch", core)
+  }
+
+  Rel(courier_dispatch, driver_identity, "authenticates & pays couriers via")
+```
+
 ### d5-subdomain
 
 Context map: bounded contexts within subdomains and the DDD relationship pattern between
@@ -191,7 +213,8 @@ band inside the aggregate boundary, attributed to the root.
 `examples/` contains D5 models of seven real-world DDD codebases and techniques
 (dddsample-core, ddd-by-examples/library, IDDD_Samples, eShopOnContainers, Wolff
 Microservices, a Nick-Tune-style Core Domain Chart, all-things-cqrs) — 39 diagrams across
-every zoom level.
+every zoom level — plus a `d5-domain` model of Uber's Mobility & Delivery segments
+demonstrating multiple `Domain` blocks on one canvas.
 
 ```bash
 npm run gallery   # builds and opens examples/gallery.html

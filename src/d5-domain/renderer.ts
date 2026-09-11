@@ -2,7 +2,7 @@ import type { D5DomainDb, SubdomainType } from './db.js';
 import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
 import { boxWidth } from '../shared/shape.js';
-import { isAgainstFlow } from '../shared/direction.js';
+import { type Direction, isAgainstFlow } from '../shared/direction.js';
 
 const BACK_EDGE_TITLE =
   'Runs against the dominant flow — likely part of a dependency cycle among these subdomains.';
@@ -19,6 +19,12 @@ const DOMAIN_PADDING = 30;
 const TITLE_HEIGHT = 40;
 const DOMAIN_HEADER = 36;
 const ARROW_MARKER_SIZE = 8;
+// Vertical gap between stacked domain boxes when a diagram declares more than one
+// top-level `Domain(...)` — wide enough for a cross-domain relationship label to sit in.
+const DOMAIN_GAP = 48;
+// Fallback box size for the degenerate case of a diagram with no `Domain` block at all.
+const EMPTY_DOMAIN_W = 400;
+const EMPTY_DOMAIN_H = DOMAIN_PADDING * 2;
 
 const SUBDOMAIN_COLORS: Record<SubdomainType, { fill: string; stroke: string }> = {
   core: { fill: '#dbeafe', stroke: '#3b82f6' },
@@ -31,6 +37,30 @@ const LEGEND_ITEMS: { type: SubdomainType; label: string }[] = [
   { type: 'supporting', label: 'Supporting' },
   { type: 'generic', label: 'Generic' },
 ];
+
+interface Subdomain {
+  id: string;
+  label: string;
+  type: SubdomainType;
+  domainId: string;
+}
+
+interface Relationship {
+  source: string;
+  target: string;
+  label: string;
+}
+
+interface DomainBox {
+  domain: { id: string; label: string };
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  graphStartX: number;
+  graphStartY: number;
+  g: DagreGraph;
+}
 
 function addArrowMarker(svg: SVGSVGElement): void {
   let defs = svg.querySelector('defs');
@@ -71,16 +101,11 @@ function generateCurvePath(points: { x: number; y: number }[]): string {
   return d;
 }
 
-export function render(db: D5DomainDb, container: SVGSVGElement): void {
-  addArrowMarker(container);
-
-  const subdomains = db.getSubdomains();
-  const domain = db.getDomain();
-  const relationships = db.getRelationships();
-
-  // Create Dagre Layout. Flow direction is author-controlled via `direction` (default TB).
-  const direction = db.getDirection();
-  const horizontal = direction === 'LR' || direction === 'RL';
+// Lay out one domain's subdomains + its own internal relationships as an independent Dagre
+// graph. Each `Domain` block gets its own graph (rather than one shared compound graph) so
+// its header/padding sizing stays exactly the single-domain math already proven out, and so
+// domains can never end up interleaved with each other on the same rank.
+function layoutDomainGraph(subdomains: Subdomain[], rels: Relationship[], direction: Direction, horizontal: boolean) {
   const g = new dagre.graphlib.Graph();
   g.setGraph({
     rankdir: direction,
@@ -104,7 +129,7 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
     g.setNode(sd.id, { width: w, height: SUBDOMAIN_HEIGHT });
   });
 
-  relationships.forEach((rel) => {
+  rels.forEach((rel) => {
     const edgeCfg: Record<string, unknown> = { minlen: 1 };
     if (rel.label) {
       const { w, h } = edgeLabelSize(rel.label, REL_LABEL_MAX_WIDTH);
@@ -117,20 +142,209 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
 
   dagre.layout(g);
 
-  // Compute graph bounds
-  const graphW = g.graph().width || 0;
-  const graphH = g.graph().height || 0;
+  return { g, graphW: g.graph().width || 0, graphH: g.graph().height || 0 };
+}
+
+// `new dagre.graphlib.Graph()`'s inferred type (via `@dagrejs/dagre`'s own bundled types)
+// carries the node/edge label shapes actually used below (`.points`, `.width`, `.x`/`.y`,
+// ...); naming it explicitly as `dagre.graphlib.Graph` elsewhere resolves inconsistently
+// against the separate `@types/dagre` package instead, so it's derived from this function's
+// own return type rather than referenced directly.
+type DagreGraph = ReturnType<typeof layoutDomainGraph>['g'];
+
+// Point on the border of a `w`×`h` rect centered at `(cx, cy)`, along the line toward
+// `(towardX, towardY)` — used to make a cross-domain relationship line touch each domain's
+// subdomain box instead of running into its middle.
+function clipToRect(
+  cx: number,
+  cy: number,
+  w: number,
+  h: number,
+  towardX: number,
+  towardY: number,
+): { x: number; y: number } {
+  const dx = towardX - cx;
+  const dy = towardY - cy;
+  if (dx === 0 && dy === 0) return { x: cx, y: cy };
+  const scaleX = dx !== 0 ? w / 2 / Math.abs(dx) : Infinity;
+  const scaleY = dy !== 0 ? h / 2 / Math.abs(dy) : Infinity;
+  const scale = Math.min(scaleX, scaleY);
+  return { x: cx + dx * scale, y: cy + dy * scale };
+}
+
+function drawRelPath(
+  container: SVGSVGElement,
+  points: { x: number; y: number }[],
+  label: string,
+  isBackEdge: boolean,
+  extraClass: string,
+): void {
+  const classes = ['d5-rel', extraClass];
+  if (isBackEdge) classes.push('d5-rel-back');
+
+  const group = document.createElementNS(SVG_NS, 'g');
+  group.setAttribute('class', classes.filter(Boolean).join(' '));
+
+  if (isBackEdge) {
+    const titleEl = document.createElementNS(SVG_NS, 'title');
+    titleEl.textContent = BACK_EDGE_TITLE;
+    group.appendChild(titleEl);
+  }
+
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', generateCurvePath(points));
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', isBackEdge ? '#94a3b8' : '#64748b');
+  path.setAttribute('stroke-width', '1.5');
+  if (isBackEdge) path.setAttribute('stroke-dasharray', '6 4');
+  path.setAttribute('marker-end', 'url(#d5-arrowhead)');
+  group.appendChild(path);
+
+  if (label) {
+    // The true midpoint of the whole path, not `points[len/2]` — for a straight 2-point
+    // line that index is the *end* point, which would sit the label right on the target box.
+    const first = points[0];
+    const last = points[points.length - 1];
+    const mid = { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
+    group.appendChild(createEdgeLabel({ x: mid.x, y: mid.y, text: label, maxWidth: REL_LABEL_MAX_WIDTH }));
+  }
+
+  container.appendChild(group);
+}
+
+// Draws one intra-domain relationship (both endpoints in the same `Domain` block), routed by
+// that domain's own Dagre graph. Returns whether it was drawn as a back edge.
+function drawIntraDomainRel(
+  container: SVGSVGElement,
+  g: DagreGraph,
+  graphStartX: number,
+  graphStartY: number,
+  rel: Relationship,
+  direction: Direction,
+): boolean {
+  const edge = g.edge(rel.source, rel.target);
+  if (!edge || !edge.points || edge.points.length === 0) return false;
+
+  const shiftedPoints = edge.points.map((p: { x: number; y: number }) => ({
+    x: graphStartX + p.x,
+    y: graphStartY + p.y,
+  }));
+
+  // An edge that runs against the rank flow is a feedback / reverse dependency — draw it
+  // lighter and dashed so it reads as one. "Against the flow" depends on which axis and
+  // polarity `direction` puts the flow on (see isAgainstFlow).
+  const srcNode = g.node(rel.source);
+  const tgtNode = g.node(rel.target);
+  const isBackEdge = !!srcNode && !!tgtNode && isAgainstFlow(direction, srcNode, tgtNode);
+
+  const label = rel.label;
+  let labelPoint: { x: number; y: number } | undefined;
+  if (label) {
+    labelPoint =
+      typeof edge.x === 'number' && typeof edge.y === 'number'
+        ? { x: graphStartX + edge.x, y: graphStartY + edge.y }
+        : undefined;
+  }
+
+  const group = document.createElementNS(SVG_NS, 'g');
+  group.setAttribute('class', isBackEdge ? 'd5-rel d5-rel-back' : 'd5-rel');
+
+  if (isBackEdge) {
+    const titleEl = document.createElementNS(SVG_NS, 'title');
+    titleEl.textContent = BACK_EDGE_TITLE;
+    group.appendChild(titleEl);
+  }
+
+  const path = document.createElementNS(SVG_NS, 'path');
+  path.setAttribute('d', generateCurvePath(shiftedPoints));
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', isBackEdge ? '#94a3b8' : '#64748b');
+  path.setAttribute('stroke-width', '1.5');
+  if (isBackEdge) path.setAttribute('stroke-dasharray', '6 4');
+  path.setAttribute('marker-end', 'url(#d5-arrowhead)');
+  group.appendChild(path);
+
+  if (label) {
+    const p = labelPoint ?? shiftedPoints[Math.floor(shiftedPoints.length / 2)];
+    group.appendChild(createEdgeLabel({ x: p.x, y: p.y, text: label, maxWidth: REL_LABEL_MAX_WIDTH }));
+  }
+
+  container.appendChild(group);
+  return isBackEdge;
+}
+
+export function render(db: D5DomainDb, container: SVGSVGElement): void {
+  addArrowMarker(container);
+
+  const domains = db.getDomains();
+  const subdomains = db.getSubdomains();
+  const relationships = db.getRelationships();
+
+  // Flow direction is author-controlled via `direction` (default TB), shared by every
+  // domain's internal layout.
+  const direction = db.getDirection();
+  const horizontal = direction === 'LR' || direction === 'RL';
+
+  const byDomain = new Map<string, Subdomain[]>();
+  const domainOf = new Map<string, string>();
+  subdomains.forEach((sd) => {
+    domainOf.set(sd.id, sd.domainId);
+    const list = byDomain.get(sd.domainId);
+    if (list) list.push(sd);
+    else byDomain.set(sd.domainId, [sd]);
+  });
+
+  // A Rel is "intra-domain" when both ends live in the same Domain block — it's routed by
+  // that domain's own graph. Otherwise (or if an endpoint is unknown) it's cross-domain.
+  const intraByDomain = new Map<string, Relationship[]>();
+  const crossDomainRels: Relationship[] = [];
+  relationships.forEach((rel) => {
+    const sourceDomain = domainOf.get(rel.source);
+    const targetDomain = domainOf.get(rel.target);
+    if (!sourceDomain || !targetDomain) return; // reference to an unknown subdomain
+    if (sourceDomain === targetDomain) {
+      const list = intraByDomain.get(sourceDomain);
+      if (list) list.push(rel);
+      else intraByDomain.set(sourceDomain, [rel]);
+    } else {
+      crossDomainRels.push(rel);
+    }
+  });
 
   const domainX = DOMAIN_PADDING;
-  const domainY = (db.getTitle() ? TITLE_HEIGHT : 0) + DOMAIN_PADDING;
+  const domainY0 = (db.getTitle() ? TITLE_HEIGHT : 0) + DOMAIN_PADDING;
 
-  let domainW = graphW + DOMAIN_PADDING * 2;
-  if (!domain && subdomains.length === 0) domainW = 400; // fallback
-  const domainH = (domain ? DOMAIN_HEADER : 0) + graphH + DOMAIN_PADDING * 2;
+  // Each Domain gets its own independent Dagre layout, then the boxes are stacked
+  // vertically top-to-bottom in declaration order.
+  const domainBoxes: DomainBox[] = [];
+  let cursorY = domainY0;
+  domains.forEach((domain) => {
+    const sds = byDomain.get(domain.id) ?? [];
+    const rels = intraByDomain.get(domain.id) ?? [];
+    const { g, graphW, graphH } = layoutDomainGraph(sds, rels, direction, horizontal);
+    const w = graphW + DOMAIN_PADDING * 2;
+    const h = DOMAIN_HEADER + graphH + DOMAIN_PADDING * 2;
+    domainBoxes.push({
+      domain,
+      x: domainX,
+      y: cursorY,
+      w,
+      h,
+      graphStartX: domainX + DOMAIN_PADDING,
+      graphStartY: cursorY + DOMAIN_HEADER + DOMAIN_PADDING,
+      g,
+    });
+    cursorY += h + DOMAIN_GAP;
+  });
+  const hasDomains = domainBoxes.length > 0;
+  if (hasDomains) cursorY -= DOMAIN_GAP;
 
-  const totalW = domainX + domainW + DOMAIN_PADDING;
+  const maxDomainW = hasDomains ? Math.max(...domainBoxes.map((b) => b.w)) : EMPTY_DOMAIN_W;
+  const contentBottom = hasDomains ? cursorY : domainY0 + EMPTY_DOMAIN_H;
+
+  const totalW = domainX + maxDomainW + DOMAIN_PADDING;
   const legendH = 30;
-  const totalH = domainY + domainH + legendH + DOMAIN_PADDING;
+  const totalH = contentBottom + legendH + DOMAIN_PADDING;
 
   container.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
   container.setAttribute('height', String(totalH));
@@ -151,149 +365,147 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
     container.appendChild(titleEl);
   }
 
-  // Domain boundary
-  const domainGroup = document.createElementNS(SVG_NS, 'g');
-  domainGroup.setAttribute('class', 'd5-domain');
+  if (!hasDomains) {
+    // Degenerate/empty diagram — no `Domain` block at all.
+    const domainGroup = document.createElementNS(SVG_NS, 'g');
+    domainGroup.setAttribute('class', 'd5-domain');
+    const domainRect = document.createElementNS(SVG_NS, 'rect');
+    domainRect.setAttribute('x', String(domainX));
+    domainRect.setAttribute('y', String(domainY0));
+    domainRect.setAttribute('width', String(EMPTY_DOMAIN_W));
+    domainRect.setAttribute('height', String(EMPTY_DOMAIN_H));
+    domainRect.setAttribute('rx', '12');
+    domainRect.setAttribute('fill', '#f8fafc');
+    domainRect.setAttribute('stroke', '#94a3b8');
+    domainRect.setAttribute('stroke-width', '2');
+    domainRect.setAttribute('stroke-dasharray', '8 4');
+    domainGroup.appendChild(domainRect);
+    container.appendChild(domainGroup);
+  }
 
-  const domainRect = document.createElementNS(SVG_NS, 'rect');
-  domainRect.setAttribute('x', String(domainX));
-  domainRect.setAttribute('y', String(domainY));
-  domainRect.setAttribute('width', String(domainW));
-  domainRect.setAttribute('height', String(domainH));
-  domainRect.setAttribute('rx', '12');
-  domainRect.setAttribute('fill', '#f8fafc');
-  domainRect.setAttribute('stroke', '#94a3b8');
-  domainRect.setAttribute('stroke-width', '2');
-  domainRect.setAttribute('stroke-dasharray', '8 4');
-  domainGroup.appendChild(domainRect);
+  // Domain boundaries + subdomains, and a global lookup of each subdomain's center (used to
+  // route cross-domain relationships once every box has been placed).
+  const subdomainGlobal = new Map<string, { cx: number; cy: number; w: number; h: number }>();
 
-  if (domain) {
+  domainBoxes.forEach((box) => {
+    const domainGroup = document.createElementNS(SVG_NS, 'g');
+    domainGroup.setAttribute('class', 'd5-domain');
+
+    const domainRect = document.createElementNS(SVG_NS, 'rect');
+    domainRect.setAttribute('x', String(box.x));
+    domainRect.setAttribute('y', String(box.y));
+    domainRect.setAttribute('width', String(box.w));
+    domainRect.setAttribute('height', String(box.h));
+    domainRect.setAttribute('rx', '12');
+    domainRect.setAttribute('fill', '#f8fafc');
+    domainRect.setAttribute('stroke', '#94a3b8');
+    domainRect.setAttribute('stroke-width', '2');
+    domainRect.setAttribute('stroke-dasharray', '8 4');
+    domainGroup.appendChild(domainRect);
+
     const domainLabel = document.createElementNS(SVG_NS, 'text');
-    domainLabel.setAttribute('x', String(domainX + 16));
-    domainLabel.setAttribute('y', String(domainY + 24));
+    domainLabel.setAttribute('x', String(box.x + 16));
+    domainLabel.setAttribute('y', String(box.y + 24));
     domainLabel.setAttribute('font-size', '14');
     domainLabel.setAttribute('font-weight', '600');
     domainLabel.setAttribute('fill', '#475569');
-    domainLabel.textContent = domain.label;
+    domainLabel.textContent = box.domain.label;
     domainGroup.appendChild(domainLabel);
-  }
 
-  container.appendChild(domainGroup);
+    container.appendChild(domainGroup);
 
-  const graphStartX = domainX + DOMAIN_PADDING;
-  const graphStartY = domainY + (domain ? DOMAIN_HEADER : 0) + DOMAIN_PADDING;
+    (byDomain.get(box.domain.id) ?? []).forEach((sd) => {
+      const node = box.g.node(sd.id);
+      if (!node) return;
 
-  // Subdomains inside domain
-  subdomains.forEach((sd) => {
-    const node = g.node(sd.id);
-    if (!node) return;
+      const w = node.width;
+      const h = node.height;
+      const x = box.graphStartX + node.x - w / 2;
+      const y = box.graphStartY + node.y - h / 2;
+      const cx = x + w / 2;
+      const cy = y + h / 2;
+      subdomainGlobal.set(sd.id, { cx, cy, w, h });
 
-    const w = node.width;
-    const h = node.height;
-    const x = graphStartX + node.x - w / 2;
-    const y = graphStartY + node.y - h / 2;
-    const cx = x + w / 2;
-    const cy = y + h / 2;
+      const colors = SUBDOMAIN_COLORS[sd.type];
 
-    const colors = SUBDOMAIN_COLORS[sd.type];
+      const group = document.createElementNS(SVG_NS, 'g');
+      group.setAttribute('class', `d5-subdomain d5-subdomain-${sd.type}`);
 
-    const group = document.createElementNS(SVG_NS, 'g');
-    group.setAttribute('class', `d5-subdomain d5-subdomain-${sd.type}`);
+      const rect = document.createElementNS(SVG_NS, 'rect');
+      rect.setAttribute('x', String(x));
+      rect.setAttribute('y', String(y));
+      rect.setAttribute('width', String(w));
+      rect.setAttribute('height', String(h));
+      rect.setAttribute('rx', '8');
+      rect.setAttribute('fill', colors.fill);
+      rect.setAttribute('stroke', colors.stroke);
+      rect.setAttribute('stroke-width', '2');
+      group.appendChild(rect);
 
-    const rect = document.createElementNS(SVG_NS, 'rect');
-    rect.setAttribute('x', String(x));
-    rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(w));
-    rect.setAttribute('height', String(h));
-    rect.setAttribute('rx', '8');
-    rect.setAttribute('fill', colors.fill);
-    rect.setAttribute('stroke', colors.stroke);
-    rect.setAttribute('stroke-width', '2');
-    group.appendChild(rect);
+      const labelText = document.createElementNS(SVG_NS, 'text');
+      labelText.setAttribute('x', String(cx));
+      labelText.setAttribute('y', String(cy - 4));
+      labelText.setAttribute('text-anchor', 'middle');
+      labelText.setAttribute('font-size', '13');
+      labelText.setAttribute('font-weight', '600');
+      labelText.setAttribute('fill', '#1e293b');
+      labelText.textContent = sd.label;
+      group.appendChild(labelText);
 
-    const labelText = document.createElementNS(SVG_NS, 'text');
-    labelText.setAttribute('x', String(cx));
-    labelText.setAttribute('y', String(cy - 4));
-    labelText.setAttribute('text-anchor', 'middle');
-    labelText.setAttribute('font-size', '13');
-    labelText.setAttribute('font-weight', '600');
-    labelText.setAttribute('fill', '#1e293b');
-    labelText.textContent = sd.label;
-    group.appendChild(labelText);
+      const typeText = document.createElementNS(SVG_NS, 'text');
+      typeText.setAttribute('x', String(cx));
+      typeText.setAttribute('y', String(cy + 16));
+      typeText.setAttribute('text-anchor', 'middle');
+      typeText.setAttribute('font-size', '11');
+      typeText.setAttribute('fill', colors.stroke);
+      typeText.textContent = sd.type;
+      group.appendChild(typeText);
 
-    const typeText = document.createElementNS(SVG_NS, 'text');
-    typeText.setAttribute('x', String(cx));
-    typeText.setAttribute('y', String(cy + 16));
-    typeText.setAttribute('text-anchor', 'middle');
-    typeText.setAttribute('font-size', '11');
-    typeText.setAttribute('fill', colors.stroke);
-    typeText.textContent = sd.type;
-    group.appendChild(typeText);
-
-    container.appendChild(group);
+      container.appendChild(group);
+    });
   });
 
   // Relationships as arrows
   let hasBackEdge = false;
-  relationships.forEach((rel) => {
-    const edge = g.edge(rel.source, rel.target);
-    if (!edge || !edge.points || edge.points.length === 0) return;
 
-    // Shift points to relative coordinate space
-    const shiftedPoints = edge.points.map((p: { x: number; y: number }) => ({
-      x: graphStartX + p.x,
-      y: graphStartY + p.y,
-    }));
+  domainBoxes.forEach((box) => {
+    (intraByDomain.get(box.domain.id) ?? []).forEach((rel) => {
+      const isBackEdge = drawIntraDomainRel(
+        container,
+        box.g,
+        box.graphStartX,
+        box.graphStartY,
+        rel,
+        direction,
+      );
+      if (isBackEdge) hasBackEdge = true;
+    });
+  });
 
-    // An edge that runs against the rank flow is a feedback / reverse dependency —
-    // draw it lighter and dashed so it reads as one. "Against the flow" depends on
-    // which axis and polarity `direction` puts the flow on (see isAgainstFlow).
-    const srcNode = g.node(rel.source);
-    const tgtNode = g.node(rel.target);
-    const isBackEdge = !!srcNode && !!tgtNode && isAgainstFlow(direction, srcNode, tgtNode);
+  // Cross-domain relationships route as a straight line clipped to each subdomain's box,
+  // drawn once every domain's subdomains have a known global position. A cross-domain edge
+  // that points at an earlier domain in the (declaration-order, top-to-bottom) stack reads
+  // the same way an intra-domain back edge does — a reverse / cyclical dependency.
+  const domainIndex = new Map<string, number>();
+  domains.forEach((d, i) => domainIndex.set(d.id, i));
+
+  crossDomainRels.forEach((rel) => {
+    const src = subdomainGlobal.get(rel.source);
+    const tgt = subdomainGlobal.get(rel.target);
+    if (!src || !tgt) return;
+
+    const sourceDomain = domainOf.get(rel.source)!;
+    const targetDomain = domainOf.get(rel.target)!;
+    const isBackEdge = (domainIndex.get(targetDomain) ?? 0) < (domainIndex.get(sourceDomain) ?? 0);
     if (isBackEdge) hasBackEdge = true;
 
-    const group = document.createElementNS(SVG_NS, 'g');
-    group.setAttribute('class', isBackEdge ? 'd5-rel d5-rel-back' : 'd5-rel');
-
-    if (isBackEdge) {
-      const titleEl = document.createElementNS(SVG_NS, 'title');
-      titleEl.textContent = BACK_EDGE_TITLE;
-      group.appendChild(titleEl);
-    }
-
-    const pathString = generateCurvePath(shiftedPoints);
-
-    const path = document.createElementNS(SVG_NS, 'path');
-    path.setAttribute('d', pathString);
-    path.setAttribute('fill', 'none');
-    path.setAttribute('stroke', isBackEdge ? '#94a3b8' : '#64748b');
-    path.setAttribute('stroke-width', '1.5');
-    if (isBackEdge) path.setAttribute('stroke-dasharray', '6 4');
-    path.setAttribute('marker-end', 'url(#d5-arrowhead)');
-    group.appendChild(path);
-
-    if (rel.label) {
-      let lx: number;
-      let ly: number;
-      if (typeof edge.x === 'number' && typeof edge.y === 'number') {
-        lx = graphStartX + edge.x;
-        ly = graphStartY + edge.y;
-      } else {
-        const mid = shiftedPoints[Math.floor(shiftedPoints.length / 2)];
-        lx = mid.x;
-        ly = mid.y;
-      }
-      group.appendChild(
-        createEdgeLabel({ x: lx, y: ly, text: rel.label, maxWidth: REL_LABEL_MAX_WIDTH }),
-      );
-    }
-
-    container.appendChild(group);
+    const start = clipToRect(src.cx, src.cy, src.w, src.h, tgt.cx, tgt.cy);
+    const end = clipToRect(tgt.cx, tgt.cy, tgt.w, tgt.h, src.cx, src.cy);
+    drawRelPath(container, [start, end], rel.label, isBackEdge, 'd5-rel-cross');
   });
 
   // Legend
-  const legendY = domainY + domainH + 16;
+  const legendY = contentBottom + 16;
   const legendGroup = document.createElementNS(SVG_NS, 'g');
   legendGroup.setAttribute('class', 'd5-legend');
 
@@ -348,4 +560,3 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
 
   container.appendChild(legendGroup);
 }
-
