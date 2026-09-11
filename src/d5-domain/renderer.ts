@@ -2,6 +2,10 @@ import type { D5DomainDb, SubdomainType } from './db.js';
 import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
 import { boxWidth } from '../shared/shape.js';
+import { isAgainstFlow } from '../shared/direction.js';
+
+const BACK_EDGE_TITLE =
+  'Runs against the dominant flow — likely part of a dependency cycle among these subdomains.';
 
 const REL_LABEL_MAX_WIDTH = 150;
 
@@ -230,6 +234,7 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
   });
 
   // Relationships as arrows
+  let hasBackEdge = false;
   relationships.forEach((rel) => {
     const edge = g.edge(rel.source, rel.target);
     if (!edge || !edge.points || edge.points.length === 0) return;
@@ -240,14 +245,22 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
       y: graphStartY + p.y,
     }));
 
-    // An edge that runs against the rank flow (target sits above its source) is a
-    // feedback / reverse dependency — draw it lighter and dashed so it reads as one.
+    // An edge that runs against the rank flow is a feedback / reverse dependency —
+    // draw it lighter and dashed so it reads as one. "Against the flow" depends on
+    // which axis and polarity `direction` puts the flow on (see isAgainstFlow).
     const srcNode = g.node(rel.source);
     const tgtNode = g.node(rel.target);
-    const isBackEdge = !!srcNode && !!tgtNode && tgtNode.y < srcNode.y - 1;
+    const isBackEdge = !!srcNode && !!tgtNode && isAgainstFlow(direction, srcNode, tgtNode);
+    if (isBackEdge) hasBackEdge = true;
 
     const group = document.createElementNS(SVG_NS, 'g');
     group.setAttribute('class', isBackEdge ? 'd5-rel d5-rel-back' : 'd5-rel');
+
+    if (isBackEdge) {
+      const titleEl = document.createElementNS(SVG_NS, 'title');
+      titleEl.textContent = BACK_EDGE_TITLE;
+      group.appendChild(titleEl);
+    }
 
     const pathString = generateCurvePath(shiftedPoints);
 
@@ -309,6 +322,29 @@ export function render(db: D5DomainDb, container: SVGSVGElement): void {
 
     legendX += 90;
   });
+
+  if (hasBackEdge) {
+    const swatchY = legendY + 7;
+    const line = document.createElementNS(SVG_NS, 'line');
+    line.setAttribute('x1', String(legendX));
+    line.setAttribute('y1', String(swatchY));
+    line.setAttribute('x2', String(legendX + 14));
+    line.setAttribute('y2', String(swatchY));
+    line.setAttribute('stroke', '#94a3b8');
+    line.setAttribute('stroke-width', '1.5');
+    line.setAttribute('stroke-dasharray', '6 4');
+    legendGroup.appendChild(line);
+
+    const label = document.createElementNS(SVG_NS, 'text');
+    label.setAttribute('x', String(legendX + 20));
+    label.setAttribute('y', String(legendY + 11));
+    label.setAttribute('font-size', '11');
+    label.setAttribute('fill', '#64748b');
+    label.textContent = 'Reverse dependency (cycle)';
+    legendGroup.appendChild(label);
+
+    legendX += 170;
+  }
 
   container.appendChild(legendGroup);
 }
