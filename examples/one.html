@@ -4,10 +4,32 @@
   <meta charset="UTF-8" />
   <title>D5 one</title>
   <style>
-    html, body { margin: 0; padding: 0; background: #fff; }
-    #wrap { display: inline-block; padding: 12px; }
-    svg { display: block; }
+    html, body { margin: 0; padding: 0; background: #fff; height: 100%; overflow: hidden; }
+    /* Pass ?static=1 for the old plain (unpannable, natural-size) render — used by the
+       screenshot-based verification workflow, where a fixed full-viewport pan/zoom stage
+       would change what a screenshot captures. */
+    body.static { height: auto; overflow: visible; }
+    #wrap { position: absolute; inset: 0; overflow: hidden; cursor: grab; touch-action: none; }
+    #wrap.panning { cursor: grabbing; }
+    body.static #wrap { position: static; overflow: visible; display: inline-block; padding: 12px; cursor: auto; }
+    #wrap svg { display: block; transform-origin: 0 0; }
     .err { color: #b91c1c; font: 13px monospace; padding: 16px; white-space: pre-wrap; }
+    .hint {
+      position: absolute; left: 12px; bottom: 12px; z-index: 10;
+      font: 11px -apple-system, sans-serif; color: #64748b;
+      background: rgba(255,255,255,0.9); border: 1px solid #e2e8f0;
+      border-radius: 6px; padding: 4px 8px; pointer-events: none;
+    }
+    .zoom-controls {
+      position: absolute; right: 12px; bottom: 12px; z-index: 10;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .zoom-controls button {
+      width: 28px; height: 28px; border-radius: 6px; border: 1px solid #cbd5e1;
+      background: rgba(255,255,255,0.95); color: #334155; font-size: 15px; line-height: 1;
+      cursor: pointer;
+    }
+    .zoom-controls button:hover { background: #f1f5f9; }
   </style>
 </head>
 <body>
@@ -16,6 +38,76 @@
     import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
     const params = new URLSearchParams(location.search);
     const path = params.get('m');
+    const isStatic = params.has('static');
+    if (isStatic) document.body.classList.add('static');
+
+    // Minimal, dependency-free pan/zoom: CSS transform on the <svg> itself, driven by
+    // wheel (zoom toward cursor), drag (pan) and dblclick (zoom in). Tried svg-pan-zoom
+    // first, but it sizes itself from the SVG's own width/height *attributes* — mermaid
+    // emits `width="100%"` there for responsive embedding, which the library can't turn
+    // into a usable pixel size. Rolling this by hand sidesteps that entirely.
+    function makePanZoomable(svg, container) {
+      const vb = svg.viewBox.baseVal;
+      let scale = 1, x = 0, y = 0, panning = false, startX = 0, startY = 0;
+
+      function apply() {
+        svg.style.transform = `translate(${x}px, ${y}px) scale(${scale})`;
+      }
+
+      function zoomAt(cx, cy, factor) {
+        const next = Math.min(Math.max(scale * factor, 0.05), 20);
+        x = cx - ((cx - x) / scale) * next;
+        y = cy - ((cy - y) / scale) * next;
+        scale = next;
+        apply();
+      }
+
+      function fit() {
+        if (!vb.width || !vb.height) return;
+        const cw = container.clientWidth;
+        const ch = container.clientHeight;
+        scale = Math.min(cw / vb.width, ch / vb.height) * 0.94;
+        x = (cw - vb.width * scale) / 2;
+        y = (ch - vb.height * scale) / 2;
+        apply();
+      }
+
+      container.addEventListener('wheel', (e) => {
+        e.preventDefault();
+        const r = container.getBoundingClientRect();
+        zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+      }, { passive: false });
+
+      container.addEventListener('pointerdown', (e) => {
+        panning = true;
+        startX = e.clientX - x;
+        startY = e.clientY - y;
+        container.setPointerCapture(e.pointerId);
+        container.classList.add('panning');
+      });
+      container.addEventListener('pointermove', (e) => {
+        if (!panning) return;
+        x = e.clientX - startX;
+        y = e.clientY - startY;
+        apply();
+      });
+      const stopPan = () => { panning = false; container.classList.remove('panning'); };
+      container.addEventListener('pointerup', stopPan);
+      container.addEventListener('pointercancel', stopPan);
+
+      container.addEventListener('dblclick', (e) => {
+        const r = container.getBoundingClientRect();
+        zoomAt(e.clientX - r.left, e.clientY - r.top, 1.6);
+      });
+
+      fit();
+      return {
+        fit,
+        zoomIn: () => zoomAt(container.clientWidth / 2, container.clientHeight / 2, 1.3),
+        zoomOut: () => zoomAt(container.clientWidth / 2, container.clientHeight / 2, 1 / 1.3),
+      };
+    }
+
     async function run() {
       const { d5Diagrams } = await import('../dist/index.js?v=' + Date.now());
       mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
@@ -25,9 +117,28 @@
       const src = (m ? m[1] : md).replace(/\s+$/, '');
       try {
         const { svg } = await mermaid.render('one-svg', src);
-        document.getElementById('wrap').innerHTML = svg;
+        const wrap = document.getElementById('wrap');
+        wrap.innerHTML = svg;
         const s = document.querySelector('svg');
         window.__svgSize = { w: s.getBoundingClientRect().width, h: s.getBoundingClientRect().height, vb: s.getAttribute('viewBox') };
+        if (!isStatic) {
+          const pz = makePanZoomable(s, wrap);
+          window.__panZoom = pz;
+
+          const controls = document.createElement('div');
+          controls.className = 'zoom-controls';
+          controls.innerHTML = '<button title="Zoom in">+</button><button title="Zoom out">−</button><button title="Fit">⤢</button>';
+          const [zoomInBtn, zoomOutBtn, fitBtn] = controls.children;
+          zoomInBtn.onclick = pz.zoomIn;
+          zoomOutBtn.onclick = pz.zoomOut;
+          fitBtn.onclick = pz.fit;
+          document.body.appendChild(controls);
+
+          const hint = document.createElement('div');
+          hint.className = 'hint';
+          hint.textContent = 'Scroll to zoom · drag to pan · double-click to zoom in';
+          document.body.appendChild(hint);
+        }
       } catch (e) {
         document.getElementById('wrap').innerHTML = '<div class="err">' + (e && e.message || e) + '</div>';
       }
