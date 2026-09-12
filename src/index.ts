@@ -21,6 +21,8 @@ import { D5AggregateDb } from './d5-aggregate/db.js';
 import { parse as parseAggregate } from './d5-aggregate/parser.js';
 import { render as renderAggregate } from './d5-aggregate/renderer.js';
 
+export { attachPanZoom, type PanZoomOptions, type PanZoomHandle } from './shared/pan-zoom.js';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function createRenderer(db: { clear(): void }, renderFn: (db: any, container: SVGSVGElement) => void) {

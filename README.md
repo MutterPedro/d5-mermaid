@@ -208,6 +208,30 @@ The optional **`Invariants { Invariant("rule") | Invariant("Subject", "rule") }`
 lists the business rules the aggregate keeps true on every transaction. It renders as a
 band inside the aggregate boundary, attributed to the root.
 
+## Pan & Zoom
+
+Mermaid only renders static SVG — navigating a large diagram is left to whatever embeds it.
+`attachPanZoom` bolts that on: wheel to zoom (toward the cursor), drag to pan, double-click
+to zoom in, plus an optional +/−/fit button cluster. It's dependency-free (no `svg-pan-zoom`
+or similar — see the source comment in `src/shared/pan-zoom.ts` for why: that class of
+library sizes itself from the SVG's own `width`/`height` *attributes*, and mermaid emits
+`width="100%"` there for responsive embedding, which they can't turn into a usable pixel size).
+
+```typescript
+import { attachPanZoom } from 'd5-mermaid';
+
+const { svg } = await mermaid.render('my-diagram', src);
+container.innerHTML = svg;
+attachPanZoom(container.querySelector('svg'), container);
+```
+
+`container` (default: the svg's own parent) is given `overflow: hidden`, `position:
+relative` (if it was `static`) and a grab cursor, and is where the controls/hint are
+anchored. It returns a handle — `{ fit(), zoomIn(), zoomOut(), getScale(), destroy() }` —
+and takes an options object: `minScale` / `maxScale` (default `0.05` / `20`), `wheelStep`
+(`1.15`), `dblClickStep` (`1.6`), `fitPadding` (`0.94`), `controls` (`true`), and `hint`
+(`true`; a string overrides the default text, `false` hides it).
+
 ## Examples
 
 `examples/` contains D5 models of seven real-world DDD codebases and techniques
