@@ -2,6 +2,32 @@
 
 All notable changes to the `d5-mermaid` package are documented in this file.
 
+## 0.4.0
+
+- `d5-domain` accepts more than one top-level `Domain(...) { ... }` block on one canvas —
+  e.g. two largely-separate businesses that share a strategic dependency. Each domain is
+  laid out independently (its own Dagre graph, reusing the existing single-domain
+  header/padding sizing) and the boxes stack top-to-bottom in declaration order; a `Rel`
+  may cross between two different domains, drawn as a straight line clipped to each
+  subdomain's box and dashed when it points at an earlier domain in the stack (the same
+  "reverse dependency" convention as the 0.3.2 back-edge fix). See
+  [D5-SPEC.md](../D5-SPEC.md) v0.4.0.
+- Add `attachPanZoom(svg, container?, options?)` — bolts wheel-to-zoom (toward the
+  cursor), drag-to-pan, double-click-to-zoom, and an optional +/−/fit control cluster onto
+  an already-rendered SVG (mermaid itself only produces static SVG). Dependency-free by
+  design: a `svg-pan-zoom`-style library sizes itself from the SVG's own `width`/`height`
+  *attributes*, and mermaid emits `width="100%"` there for responsive embedding, which such
+  libraries can't turn into a usable pixel size.
+  - Fixes two bugs caught hand-testing it in a browser before release: the pan-start
+    handler unconditionally captured the pointer on every pointerdown, which retargets the
+    browser's synthesized `click` event away from whatever the pointerdown started on — the
+    control buttons did nothing because their `click` never actually reached them. And
+    `fit()` silently no-oped when called synchronously right after inserting the SVG (the
+    natural call shape) because the container hadn't had its first layout pass yet; it now
+    retries once via `requestAnimationFrame`.
+  - `examples/one.html` and `examples/gallery.html` now use this instead of each carrying
+    their own copy.
+
 ## 0.3.2
 
 - Fix: `d5-domain`'s "back edge" detection (the dashed line marking a relationship that
