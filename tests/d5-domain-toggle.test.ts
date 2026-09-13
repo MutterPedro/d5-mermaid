@@ -89,6 +89,48 @@ describe('attachDomainToggle (integration, real renderer)', () => {
     expect(svg.querySelectorAll('.d5-subdomain')).toHaveLength(3);
   });
 
+  // Regression test for a real bug caught hand-testing Example 8 (Uber Mobility & Delivery)
+  // in the browser: hiding every Subdomain of one Domain broke the *whole* diagram, not
+  // just that Domain's box. Root cause: `dagre.layout()` on a Domain's now-empty local
+  // graph reports `graph().width`/`.height` as `-Infinity`, not `0` — the `|| 0` fallback
+  // doesn't catch it because `-Infinity` is truthy in JS. That `-Infinity` became that
+  // Domain's box width/height, and since Domains stack by adding each one's height to a
+  // running total, it poisoned every Domain stacked after it too. Fixed with `finiteOr0()`
+  // (src/shared/shape.ts), shared by every renderer with this exact `dagre.layout()` +
+  // `graph().width || 0` pattern (also found and fixed in d5-subdomain and d5-context).
+  it('hiding every Subdomain of one Domain leaves a sane empty box, not -Infinity, and does not break the other Domain', () => {
+    const db = buildTwoDomainDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachDomainToggle(svg, db, container, { panel: false });
+    handle.hide('ride_matching');
+    handle.hide('driver_identity'); // both of mobility's subdomains now hidden
+
+    expect(svg.outerHTML).not.toContain('Infinity');
+    expect(svg.querySelectorAll('.d5-domain')).toHaveLength(2);
+
+    const rects = Array.from(svg.querySelectorAll('.d5-domain rect')) as SVGRectElement[];
+    rects.forEach((r) => {
+      expect(Number(r.getAttribute('width'))).toBeGreaterThan(0);
+      expect(Number(r.getAttribute('height'))).toBeGreaterThan(0);
+    });
+
+    // delivery's still-visible subdomain rendered with a real, positive size too
+    const deliveryBox = Array.from(svg.querySelectorAll('.d5-subdomain')).find((el) =>
+      el.textContent?.includes('Courier Dispatch'),
+    )!;
+    const deliveryRect = deliveryBox.querySelector('rect')!;
+    expect(Number(deliveryRect.getAttribute('width'))).toBeGreaterThan(0);
+    expect(Number(deliveryRect.getAttribute('height'))).toBeGreaterThan(0);
+
+    const [, , vbWidth, vbHeight] = svg.getAttribute('viewBox')!.split(' ').map(Number);
+    expect(Number.isFinite(vbWidth) && vbWidth > 0).toBe(true);
+    expect(Number.isFinite(vbHeight) && vbHeight > 0).toBe(true);
+  });
+
   it('renders a checklist panel grouped by Domain, with one row per Subdomain', () => {
     const db = buildTwoDomainDb();
     const container = document.createElement('div');
@@ -98,8 +140,9 @@ describe('attachDomainToggle (integration, real renderer)', () => {
 
     attachDomainToggle(svg, db, container);
 
+    // 3 Subdomain checkboxes + 1 "select all" checkbox per Domain group (2 Domains)
     const boxes = container.querySelectorAll('[data-d5-toggle-panel] input[type="checkbox"]');
-    expect(boxes).toHaveLength(3);
+    expect(boxes).toHaveLength(5);
     const panelText = container.querySelector('[data-d5-toggle-panel]')!.textContent!;
     expect(panelText).toContain('Mobility');
     expect(panelText).toContain('Delivery');

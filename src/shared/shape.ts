@@ -27,6 +27,20 @@ export function ellipseRx(textWidth: number, min: number, marginX = 14): number 
 }
 
 /**
+ * `dagre.layout()` on a graph with zero nodes reports `graph().width`/`.height` as
+ * `-Infinity`, not `0` or `undefined` — so the common `g.graph().width || 0` fallback
+ * doesn't catch it (`-Infinity` is truthy). An empty layout is a real case here: every
+ * `attach<Type>Toggle` lets an author hide every item in a container (a Domain with all its
+ * Subdomains unchecked, etc.), and the `-Infinity` silently poisoned that container's box
+ * size — then, for anything stacking multiple such boxes, every box after it too. Confirmed
+ * live: hiding every Subdomain of one Domain broke the whole d5-domain diagram, not just
+ * that Domain's box.
+ */
+export function finiteOr0(n: number): number {
+  return Number.isFinite(n) ? n : 0;
+}
+
+/**
  * Lay `count` equal cells out in a grid whose overall width stays within `targetWidth`
  * where possible. Returns the column count and the resulting row count.
  */

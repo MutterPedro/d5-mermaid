@@ -291,10 +291,12 @@ describe('attachToggle', () => {
       // "Group Two" (with its A, C) appears before "Group One" (with its B) — first-seen order
       expect(panelText.indexOf('Group Two')).toBeLessThan(panelText.indexOf('Group One'));
 
+      // every row (group heading and item alike) is a <label> wrapping its own checkbox —
+      // this asserts both the group headings *and* the items land in the right order.
       const rows = Array.from(
         container.querySelectorAll('[data-d5-toggle-panel] label'),
       ) as HTMLLabelElement[];
-      expect(rows.map((r) => r.textContent)).toEqual(['A', 'C', 'B']);
+      expect(rows.map((r) => r.textContent)).toEqual(['Group Two', 'A', 'C', 'Group One', 'B']);
     });
 
     it('hiding a grouped item behaves exactly like a flat one', () => {
@@ -311,6 +313,80 @@ describe('attachToggle', () => {
       const handle = attachToggle(svg, db, groupedFakeRender, groupedAdapter);
       handle.hide('a');
       expect(Array.from(svg.querySelectorAll('.item')).map((el) => el.getAttribute('data-id'))).toEqual(['b']);
+    });
+
+    function setUpGrouped() {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+      container.appendChild(svg);
+      const db: GroupedDb = {
+        items: [
+          { id: 'a', label: 'A', group: 'Group One' },
+          { id: 'b', label: 'B', group: 'Group One' },
+          { id: 'c', label: 'C', group: 'Group Two' },
+        ],
+      };
+      const handle = attachToggle(svg, db, groupedFakeRender, groupedAdapter);
+      const groupOneCheckbox = Array.from(
+        container.querySelectorAll('[data-d5-toggle-panel] label'),
+      ).find((label) => label.textContent === 'Group One')!.querySelector('input') as HTMLInputElement;
+      return { container, svg, handle, groupOneCheckbox };
+    }
+
+    it("a group's checkbox starts checked when every item in it is visible", () => {
+      const { groupOneCheckbox } = setUpGrouped();
+      expect(groupOneCheckbox.checked).toBe(true);
+      expect(groupOneCheckbox.indeterminate).toBe(false);
+    });
+
+    it("clicking a group's checkbox hides every item in that group, and only that group", () => {
+      const { svg, groupOneCheckbox } = setUpGrouped();
+
+      groupOneCheckbox.checked = false;
+      groupOneCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+      expect(Array.from(svg.querySelectorAll('.item')).map((el) => el.getAttribute('data-id'))).toEqual(['c']);
+      expect(groupOneCheckbox.checked).toBe(false);
+      expect(groupOneCheckbox.indeterminate).toBe(false);
+    });
+
+    it("clicking an unchecked group's checkbox shows every item in it again", () => {
+      const { svg, groupOneCheckbox } = setUpGrouped();
+      groupOneCheckbox.checked = false;
+      groupOneCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+      groupOneCheckbox.checked = true;
+      groupOneCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+      expect(Array.from(svg.querySelectorAll('.item')).map((el) => el.getAttribute('data-id')).sort()).toEqual([
+        'a',
+        'b',
+        'c',
+      ]);
+      expect(groupOneCheckbox.checked).toBe(true);
+    });
+
+    it("hiding just one item in a group leaves that group's checkbox indeterminate", () => {
+      const { handle, groupOneCheckbox } = setUpGrouped();
+      handle.hide('a');
+      expect(groupOneCheckbox.checked).toBe(false);
+      expect(groupOneCheckbox.indeterminate).toBe(true);
+    });
+
+    it("hiding every item in a group individually settles its checkbox to unchecked, not indeterminate", () => {
+      const { handle, groupOneCheckbox } = setUpGrouped();
+      handle.hide('a');
+      handle.hide('b');
+      expect(groupOneCheckbox.checked).toBe(false);
+      expect(groupOneCheckbox.indeterminate).toBe(false);
+    });
+
+    it("a group's checkbox never affects a different group", () => {
+      const { svg, groupOneCheckbox } = setUpGrouped();
+      groupOneCheckbox.checked = false;
+      groupOneCheckbox.dispatchEvent(new Event('change', { bubbles: true }));
+      expect(Array.from(svg.querySelectorAll('.item')).map((el) => el.getAttribute('data-id'))).toContain('c');
     });
   });
 });

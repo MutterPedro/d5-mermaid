@@ -2,6 +2,7 @@ import type { D5ContextReadable } from './db.js';
 import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
 import { measureText, wrapText, lineHeight, type FontSpec } from '../shared/text.js';
+import { finiteOr0 } from '../shared/shape.js';
 
 const REL_LABEL_MAX_WIDTH = 150;
 
@@ -244,8 +245,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   dagre.layout(g);
 
   // Compute graph bounds 
-  let graphW = g.graph().width || 0;
-  let graphH = g.graph().height || 0;
+  let graphW = finiteOr0(g.graph().width);
+  let graphH = finiteOr0(g.graph().height);
 
   const hasTerms = terms.length > 0;
 

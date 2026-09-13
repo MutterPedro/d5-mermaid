@@ -75,4 +75,27 @@ describe('attachContextToggle (integration, real renderer)', () => {
     expect(svg.textContent).toContain('My Orders'); // read model stays
     expect(svg.textContent).toContain('Order'); // remaining aggregate stays
   });
+
+  // Regression test (see the analogous d5-domain one for the full story): `dagre.layout()`
+  // on an empty graph reports `-Infinity` for width/height, which the `|| 0` fallback
+  // doesn't catch. d5-context lays every Aggregate/ReadModel out in one shared graph, so
+  // this only triggers with no ReadModels either — a diagram with just Aggregates, fully
+  // toggled off.
+  it('hiding the only aggregate in an otherwise-empty context leaves a sane box, not -Infinity', () => {
+    const db = new D5ContextDb();
+    db.setBoundedContext('order_ctx', 'Ordering', 'Order Squad');
+    db.addAggregate('order_agg', 'Order', 'Order');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachContextToggle(svg, db, container, { panel: false });
+    handle.hide('order_agg');
+
+    expect(svg.outerHTML).not.toContain('Infinity');
+    const [, , vbWidth, vbHeight] = svg.getAttribute('viewBox')!.split(' ').map(Number);
+    expect(Number.isFinite(vbWidth) && vbWidth > 0).toBe(true);
+    expect(Number.isFinite(vbHeight) && vbHeight > 0).toBe(true);
+  });
 });

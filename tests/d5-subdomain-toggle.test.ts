@@ -72,6 +72,29 @@ describe('attachSubdomainToggle (integration, real renderer)', () => {
     expect(svg.querySelectorAll('.d5-rel')).toHaveLength(1);
   });
 
+  // Regression test (see the analogous d5-domain one for the full story): `dagre.layout()`
+  // on an empty graph reports `-Infinity` for width/height, which the `|| 0` fallback
+  // doesn't catch. d5-subdomain lays every Bounded Context out in one shared graph (unlike
+  // d5-domain's per-Domain graphs), so this only triggers when literally everything is
+  // hidden — still a normal thing to reach via the checklist.
+  it('hiding every Bounded Context leaves a sane empty diagram, not -Infinity', () => {
+    const db = buildDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachSubdomainToggle(svg, db, container, { panel: false });
+    handle.hide('product_ctx');
+    handle.hide('pricing_ctx');
+    handle.hide('order_ctx');
+
+    expect(svg.outerHTML).not.toContain('Infinity');
+    const [, , vbWidth, vbHeight] = svg.getAttribute('viewBox')!.split(' ').map(Number);
+    expect(Number.isFinite(vbWidth) && vbWidth > 0).toBe(true);
+    expect(Number.isFinite(vbHeight) && vbHeight > 0).toBe(true);
+  });
+
   it('renders a checklist panel grouped by Subdomain, with one row per Bounded Context', () => {
     const db = buildDb();
     const container = document.createElement('div');
@@ -81,8 +104,9 @@ describe('attachSubdomainToggle (integration, real renderer)', () => {
 
     attachSubdomainToggle(svg, db, container);
 
+    // 3 Bounded Context checkboxes + 1 "select all" checkbox per Subdomain group (2 Subdomains)
     const boxes = container.querySelectorAll('[data-d5-toggle-panel] input[type="checkbox"]');
-    expect(boxes).toHaveLength(3);
+    expect(boxes).toHaveLength(5);
     const panelText = container.querySelector('[data-d5-toggle-panel]')!.textContent!;
     expect(panelText).toContain('Product Catalog');
     expect(panelText).toContain('Order Management');

@@ -86,6 +86,7 @@ export function attachToggle<Db>(
   const items = adapter.items(db);
   const hidden = new Set<string>(options.initiallyHidden ?? []);
   const checkboxes = new Map<string, HTMLInputElement>();
+  const groupCheckboxes = new Map<string, HTMLInputElement>();
   let collapsed = options.collapsed ?? false;
 
   function visibleIds(): Set<string> {
@@ -98,11 +99,37 @@ export function attachToggle<Db>(
     options.onChange?.(visibleIds());
   }
 
+  /** Reflects `hidden` onto every group checkbox: fully checked when none of its items are
+   * hidden, unchecked when all are, indeterminate in between. */
+  function syncGroupCheckboxes(): void {
+    groupCheckboxes.forEach((checkbox, group) => {
+      const groupItems = items.filter((i) => i.group === group);
+      const hiddenCount = groupItems.filter((i) => hidden.has(i.id)).length;
+      checkbox.checked = hiddenCount === 0;
+      checkbox.indeterminate = hiddenCount > 0 && hiddenCount < groupItems.length;
+    });
+  }
+
   function setHidden(id: string, isHidden: boolean): void {
     if (isHidden) hidden.add(id);
     else hidden.delete(id);
     const checkbox = checkboxes.get(id);
     if (checkbox) checkbox.checked = !isHidden;
+    syncGroupCheckboxes();
+    rerender();
+  }
+
+  /** Show or hide every item in one group at once, from its own checkbox. */
+  function setGroupHidden(group: string, isHidden: boolean): void {
+    items
+      .filter((item) => item.group === group)
+      .forEach((item) => {
+        if (isHidden) hidden.add(item.id);
+        else hidden.delete(item.id);
+        const checkbox = checkboxes.get(item.id);
+        if (checkbox) checkbox.checked = !isHidden;
+      });
+    syncGroupCheckboxes();
     rerender();
   }
 
@@ -116,13 +143,14 @@ export function attachToggle<Db>(
     if (chevronEl) chevronEl.textContent = collapsed ? '▸' : '▾';
   }
 
-  function addRow(parent: HTMLElement, item: ToggleItem): void {
+  function addRow(parent: HTMLElement, item: ToggleItem, indent = false): void {
     const row = document.createElement('label');
     Object.assign(row.style, {
       display: 'flex',
       alignItems: 'center',
       gap: '5px',
       padding: '2px 0',
+      paddingLeft: indent ? '16px' : '0',
       cursor: 'pointer',
       whiteSpace: 'nowrap',
     } as CSSStyleDeclaration);
@@ -197,19 +225,37 @@ export function attachToggle<Db>(
 
     if (useGroups) {
       groups.forEach((group) => {
-        const groupHeading = document.createElement('div');
-        groupHeading.textContent = group;
-        Object.assign(groupHeading.style, {
+        const groupRow = document.createElement('label');
+        Object.assign(groupRow.style, {
+          display: 'flex',
+          alignItems: 'center',
+          gap: '5px',
+          marginTop: '6px',
+          cursor: 'pointer',
+          whiteSpace: 'nowrap',
+        } as CSSStyleDeclaration);
+
+        const groupCheckbox = document.createElement('input');
+        groupCheckbox.type = 'checkbox';
+        groupCheckbox.addEventListener('change', () => setGroupHidden(group, !groupCheckbox.checked));
+        groupCheckboxes.set(group, groupCheckbox);
+
+        const groupText = document.createElement('span');
+        groupText.textContent = group;
+        Object.assign(groupText.style, {
           fontWeight: '600',
           color: '#64748b',
-          marginTop: '6px',
           fontSize: '10px',
           textTransform: 'uppercase',
           letterSpacing: '0.02em',
         } as CSSStyleDeclaration);
-        bodyEl!.appendChild(groupHeading);
-        items.filter((item) => item.group === group).forEach((item) => addRow(bodyEl!, item));
+
+        groupRow.appendChild(groupCheckbox);
+        groupRow.appendChild(groupText);
+        bodyEl!.appendChild(groupRow);
+        items.filter((item) => item.group === group).forEach((item) => addRow(bodyEl!, item, true));
       });
+      syncGroupCheckboxes();
       // items with no group (shouldn't normally happen once any item declares one, but
       // don't silently drop them if it does) render after the grouped ones, flat.
       items.filter((item) => item.group === undefined).forEach((item) => addRow(bodyEl!, item));
@@ -232,6 +278,7 @@ export function attachToggle<Db>(
     destroy: () => {
       panelEl?.remove();
       checkboxes.clear();
+      groupCheckboxes.clear();
     },
   };
 }

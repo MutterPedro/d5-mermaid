@@ -252,8 +252,11 @@ The checklist groups items under a heading once there's more than one group to d
 and `d5-aggregate` groups by kind ("Entities" / "Value Objects"). A single group (e.g. one
 `Domain`, or an aggregate with no Value Objects) renders as a flat list instead — a heading
 naming the one thing everything already belongs to wouldn't add anything. `d5-context` has
-no natural sub-grouping for Aggregates, so it's always flat. Click the panel's heading to
-collapse/expand the checklist without affecting what's shown in the diagram.
+no natural sub-grouping for Aggregates, so it's always flat. Each group heading is itself a
+checkbox — checked when every item in the group is visible, unchecked when none are,
+indeterminate in between — so unchecking it hides the whole group at once. Click the
+panel's own heading to collapse/expand the checklist without affecting what's shown in the
+diagram.
 
 Unlike `attachPanZoom` (a pure post-render transform), toggling changes the actual layout,
 so it needs the parsed data — not just an SVG string, which is all `mermaid.render()` hands

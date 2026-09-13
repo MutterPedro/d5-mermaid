@@ -1,7 +1,7 @@
 import type { D5DomainReadable, SubdomainType } from './db.js';
 import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
-import { boxWidth } from '../shared/shape.js';
+import { boxWidth, finiteOr0 } from '../shared/shape.js';
 import { type Direction, isAgainstFlow } from '../shared/direction.js';
 
 const BACK_EDGE_TITLE =
@@ -142,7 +142,7 @@ function layoutDomainGraph(subdomains: Subdomain[], rels: Relationship[], direct
 
   dagre.layout(g);
 
-  return { g, graphW: g.graph().width || 0, graphH: g.graph().height || 0 };
+  return { g, graphW: finiteOr0(g.graph().width), graphH: finiteOr0(g.graph().height) };
 }
 
 // `new dagre.graphlib.Graph()`'s inferred type (via `@dagrejs/dagre`'s own bundled types)

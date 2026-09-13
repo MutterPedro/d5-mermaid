@@ -4,6 +4,7 @@ import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
 import { measureText, wrapText, lineHeight } from '../shared/text.js';
 import { classifyRelationship, type RelPattern } from '../shared/context-relationship.js';
+import { finiteOr0 } from '../shared/shape.js';
 
 const REL_LABEL_MAX_WIDTH = 150;
 const REL_STROKE = '#64748b';
@@ -287,8 +288,8 @@ export function render(db: D5SubdomainReadable, container: SVGSVGElement): void 
 
   dagre.layout(g);
 
-  const graphW = g.graph().width || 0;
-  const graphH = g.graph().height || 0;
+  const graphW = finiteOr0(g.graph().width);
+  const graphH = finiteOr0(g.graph().height);
 
   // Distinct context-map patterns actually used, in first-seen order (for the legend).
   const usedPatterns: RelPattern[] = [];
