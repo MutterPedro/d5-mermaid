@@ -5,26 +5,40 @@ export type SubdomainType = 'core' | 'supporting' | 'generic';
 /** Context-map layout flow; `LR` matches the upstream→downstream convention. */
 const DEFAULT_DIRECTION: Direction = 'LR';
 
-interface Subdomain {
+export interface Subdomain {
   id: string;
   label: string;
   type: SubdomainType;
 }
 
-interface BoundedContext {
+export interface BoundedContext {
   id: string;
   label: string;
   subdomainId: string;
   team: string | undefined;
 }
 
-interface Relationship {
+export interface Relationship {
   source: string;
   target: string;
   label: string;
 }
 
-export class D5SubdomainDb {
+/**
+ * The subset of `D5SubdomainDb` the renderer actually reads. Kept separate from the class
+ * so a filtered, read-only view (e.g. `attachSubdomainToggle`'s hidden-subdomain facade)
+ * can satisfy it with a plain object — a class with private fields can't be structurally
+ * matched by one.
+ */
+export interface D5SubdomainReadable {
+  getTitle(): string | undefined;
+  getSubdomains(): Subdomain[];
+  getBoundedContexts(): BoundedContext[];
+  getRelationships(): Relationship[];
+  getDirection(): Direction;
+}
+
+export class D5SubdomainDb implements D5SubdomainReadable {
   private subdomains: Subdomain[] = [];
   private boundedContexts: BoundedContext[] = [];
   private relationships: Relationship[] = [];

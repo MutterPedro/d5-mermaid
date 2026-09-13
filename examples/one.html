@@ -22,26 +22,55 @@
     const params = new URLSearchParams(location.search);
     const path = params.get('m');
     const isStatic = params.has('static');
+    const withToggle = params.has('toggle');
     if (isStatic) document.body.classList.add('static');
 
+    // The toggle checklist needs the parsed db (to filter + re-render), which
+    // `mermaid.render()` never hands back — so `?toggle=1` bypasses it and calls this
+    // package's own parse()/render() pair directly, dispatching on the diagram keyword.
+    function renderWithToggle(mod, src, svg, container) {
+      const kind = src.trim().split('\n')[0].trim();
+      const table = {
+        'd5-domain': [mod.D5DomainDb, mod.parseDomain, mod.attachDomainToggle],
+        'd5-subdomain': [mod.D5SubdomainDb, mod.parseSubdomain, mod.attachSubdomainToggle],
+        'd5-context': [mod.D5ContextDb, mod.parseContext, mod.attachContextToggle],
+        'd5-aggregate': [mod.D5AggregateDb, mod.parseAggregate, mod.attachAggregateToggle],
+      };
+      const entry = table[kind];
+      if (!entry) throw new Error(`unknown diagram type: ${kind}`);
+      const [Db, parse, attachDiagramToggle] = entry;
+      const db = new Db();
+      parse(src, db);
+      return attachDiagramToggle(svg, db, container, {
+        onChange: () => window.__panZoom?.fit(),
+      });
+    }
+
     async function run() {
-      const { d5Diagrams, attachPanZoom } = await import('../dist/index.js?v=' + Date.now());
+      const mod = await import('../dist/index.js?v=' + Date.now());
+      const { d5Diagrams, attachPanZoom } = mod;
       mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
       await mermaid.registerExternalDiagrams(d5Diagrams);
       const md = await (await fetch(path)).text();
       const m = md.match(/```[^\n]*\n([\s\S]*?)```/);
       const src = (m ? m[1] : md).replace(/\s+$/, '');
+      const wrap = document.getElementById('wrap');
       try {
-        const { svg } = await mermaid.render('one-svg', src);
-        const wrap = document.getElementById('wrap');
-        wrap.innerHTML = svg;
-        const s = document.querySelector('svg');
-        window.__svgSize = { w: s.getBoundingClientRect().width, h: s.getBoundingClientRect().height, vb: s.getAttribute('viewBox') };
-        if (!isStatic) {
-          window.__panZoom = attachPanZoom(s, wrap);
+        if (withToggle) {
+          const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+          wrap.appendChild(svg);
+          window.__toggle = renderWithToggle(mod, src, svg, wrap);
+          window.__svgSize = { w: svg.getBoundingClientRect().width, h: svg.getBoundingClientRect().height, vb: svg.getAttribute('viewBox') };
+          if (!isStatic) window.__panZoom = attachPanZoom(svg, wrap);
+        } else {
+          const { svg } = await mermaid.render('one-svg', src);
+          wrap.innerHTML = svg;
+          const s = document.querySelector('svg');
+          window.__svgSize = { w: s.getBoundingClientRect().width, h: s.getBoundingClientRect().height, vb: s.getAttribute('viewBox') };
+          if (!isStatic) window.__panZoom = attachPanZoom(s, wrap);
         }
       } catch (e) {
-        document.getElementById('wrap').innerHTML = '<div class="err">' + (e && e.message || e) + '</div>';
+        wrap.innerHTML = '<div class="err">' + (e && e.message || e) + '</div>';
       }
     }
     run();

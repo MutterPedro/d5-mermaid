@@ -1,4 +1,4 @@
-import type { D5DomainDb, SubdomainType } from './db.js';
+import type { D5DomainReadable, SubdomainType } from './db.js';
 import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
 import { boxWidth } from '../shared/shape.js';
@@ -273,7 +273,7 @@ function drawIntraDomainRel(
   return isBackEdge;
 }
 
-export function render(db: D5DomainDb, container: SVGSVGElement): void {
+export function render(db: D5DomainReadable, container: SVGSVGElement): void {
   addArrowMarker(container);
 
   const domains = db.getDomains();

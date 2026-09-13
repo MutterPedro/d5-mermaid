@@ -2,13 +2,13 @@ import { type Direction, normalizeDirection } from '../shared/direction.js';
 
 const DEFAULT_DIRECTION: Direction = 'TB';
 
-interface BoundedContext {
+export interface BoundedContext {
   id: string;
   label: string;
   team: string | undefined;
 }
 
-interface Aggregate {
+export interface Aggregate {
   id: string;
   label: string;
   root: string;
@@ -16,24 +16,24 @@ interface Aggregate {
 }
 
 /** A denormalised query-side view built from domain events (CQRS read model). */
-interface ReadModel {
+export interface ReadModel {
   id: string;
   label: string;
 }
 
-interface Term {
+export interface Term {
   term: string;
   definition: string;
 }
 
-interface Relationship {
+export interface Relationship {
   source: string;
   target: string;
   label: string;
 }
 
 /** A domain event flowing from one aggregate to another: `source` emits, `target` reacts. */
-interface DomainEvent {
+export interface DomainEvent {
   source: string;
   target: string;
   name: string;
@@ -44,13 +44,31 @@ interface DomainEvent {
  * triggers it, `target` the aggregate that reacts (they may be the same for a
  * scheduled / self-directed policy). `rule` is the free-text statement.
  */
-interface Policy {
+export interface Policy {
   source: string;
   target: string;
   rule: string;
 }
 
-export class D5ContextDb {
+/**
+ * The subset of `D5ContextDb` the renderer actually reads. Kept separate from the class so
+ * a filtered, read-only view (e.g. `attachContextToggle`'s hidden-aggregate facade) can
+ * satisfy it with a plain object — a class with private fields can't be structurally
+ * matched by one.
+ */
+export interface D5ContextReadable {
+  getTitle(): string | undefined;
+  getBoundedContext(): BoundedContext | undefined;
+  getAggregates(): Aggregate[];
+  getTerms(): Term[];
+  getRelationships(): Relationship[];
+  getEvents(): DomainEvent[];
+  getPolicies(): Policy[];
+  getReadModels(): ReadModel[];
+  getDirection(): Direction;
+}
+
+export class D5ContextDb implements D5ContextReadable {
   private boundedContext: BoundedContext | undefined;
   private aggregates: Aggregate[] = [];
   private readModels: ReadModel[] = [];

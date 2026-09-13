@@ -1,27 +1,41 @@
-interface Aggregate {
+export interface Aggregate {
   id: string;
   label: string;
   root: string;
 }
 
-interface Entity {
+export interface Entity {
   id: string;
   label: string;
 }
 
-interface ValueObject {
+export interface ValueObject {
   id: string;
   label: string;
 }
 
-interface Invariant {
+export interface Invariant {
   /** optional short name / subject */
   name: string | undefined;
   /** the rule statement */
   text: string;
 }
 
-export class D5AggregateDb {
+/**
+ * The subset of `D5AggregateDb` the renderer actually reads. Kept separate from the class
+ * so a filtered, read-only view (e.g. `attachAggregateToggle`'s hidden-member facade) can
+ * satisfy it with a plain object — a class with private fields can't be structurally
+ * matched by one.
+ */
+export interface D5AggregateReadable {
+  getTitle(): string | undefined;
+  getAggregate(): Aggregate | undefined;
+  getEntities(): Entity[];
+  getValueObjects(): ValueObject[];
+  getInvariants(): Invariant[];
+}
+
+export class D5AggregateDb implements D5AggregateReadable {
   private aggregate: Aggregate | undefined;
   private entities: Entity[] = [];
   private valueObjects: ValueObject[] = [];

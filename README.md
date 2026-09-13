@@ -232,6 +232,49 @@ and takes an options object: `minScale` / `maxScale` (default `0.05` / `20`), `w
 (`1.15`), `dblClickStep` (`1.6`), `fitPadding` (`0.94`), `controls` (`true`), and `hint`
 (`true`; a string overrides the default text, `false` hides it).
 
+## Toggling Components
+
+Each diagram type has an `attach<Type>Toggle` that draws a checklist over the diagram —
+unchecking an item hides it (and anything that only referenced it) and re-lays-out the
+rest, rather than just fading it in place. The toggle unit is "the peer group one level
+under that view's outermost container":
+
+| Diagram | Toggle unit | Also removed when hidden |
+|---|---|---|
+| `d5-domain` | `Domain` | its `Subdomain`s, and any `Rel` touching one of them |
+| `d5-subdomain` | `Subdomain` | its `BoundedContext`s, and any `Rel` touching one of them |
+| `d5-context` | `Aggregate` | any `Rel`/`Event`/`Policy` touching it (`Term`s, `ReadModel`s, and the `BoundedContext` are always shown) |
+| `d5-aggregate` | `Entity` / `ValueObject` | nothing else — this view has no `Rel`; `Invariants` are free text and always shown as declared |
+
+Unlike `attachPanZoom` (a pure post-render transform), toggling changes the actual layout,
+so it needs the parsed data — not just an SVG string, which is all `mermaid.render()` hands
+back. Parse with this package's own `parse<Type>` directly instead; the toggle helper
+performs the first render too, so that's the only step before attaching it:
+
+```typescript
+import { D5DomainDb, parseDomain, attachDomainToggle } from 'd5-mermaid';
+
+const db = new D5DomainDb();
+parseDomain(src, db);
+
+const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+container.appendChild(svg);
+attachDomainToggle(svg, db, container);
+```
+
+The other three follow the same shape: `D5SubdomainDb`/`parseSubdomain`/`attachSubdomainToggle`,
+`D5ContextDb`/`parseContext`/`attachContextToggle`, `D5AggregateDb`/`parseAggregate`/`attachAggregateToggle`.
+Each returns a handle — `{ show(id), hide(id), toggle(id), isVisible(id), getHiddenIds(), destroy() }`
+— and takes an options object: `panel` (`true`; draws the checklist), `panelTitle`
+(`"Show"`), `initiallyHidden` (an iterable of ids to start unchecked), and `onChange` (called
+with the current visible-id set after every re-render — handy for calling an `attachPanZoom`
+instance's `.fit()` on the same svg, since hiding things changes the diagram's size).
+
+`attachPanZoom` and an `attach<Type>Toggle` can be pointed at the same container (see
+`examples/one.html?toggle=1`) — mark any overlay UI you add there yourself with
+`markOverlay` so `attachPanZoom`'s drag handling skips it too, the same way its own
+controls and the toggle checklist do.
+
 ## Examples
 
 `examples/` contains D5 models of seven real-world DDD codebases and techniques

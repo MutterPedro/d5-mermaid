@@ -1,4 +1,4 @@
-import type { D5AggregateDb } from './db.js';
+import type { D5AggregateReadable } from './db.js';
 import { measureText, wrapText, lineHeight, type FontSpec } from '../shared/text.js';
 import { gridDimensions } from '../shared/shape.js';
 
@@ -42,7 +42,7 @@ interface Member {
   lines: string[];
 }
 
-export function render(db: D5AggregateDb, container: SVGSVGElement): void {
+export function render(db: D5AggregateReadable, container: SVGSVGElement): void {
   const title = db.getTitle();
   const aggregate = db.getAggregate();
   const entities = db.getEntities();

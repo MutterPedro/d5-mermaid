@@ -4,12 +4,12 @@ export type SubdomainType = 'core' | 'supporting' | 'generic';
 
 const DEFAULT_DIRECTION: Direction = 'TB';
 
-interface Domain {
+export interface Domain {
   id: string;
   label: string;
 }
 
-interface Subdomain {
+export interface Subdomain {
   id: string;
   label: string;
   type: SubdomainType;
@@ -17,13 +17,27 @@ interface Subdomain {
   domainId: string;
 }
 
-interface Relationship {
+export interface Relationship {
   source: string;
   target: string;
   label: string;
 }
 
-export class D5DomainDb {
+/**
+ * The subset of `D5DomainDb` the renderer actually reads. Kept separate from the class so
+ * that a filtered, read-only view (e.g. `attachDomainToggle`'s hidden-domain facade) can
+ * satisfy it with a plain object — a class with private fields can't be structurally
+ * matched by one.
+ */
+export interface D5DomainReadable {
+  getDomains(): Domain[];
+  getSubdomains(): Subdomain[];
+  getRelationships(): Relationship[];
+  getDirection(): Direction;
+  getTitle(): string | undefined;
+}
+
+export class D5DomainDb implements D5DomainReadable {
   private domains: Domain[] = [];
   private subdomains: Subdomain[] = [];
   private relationships: Relationship[] = [];

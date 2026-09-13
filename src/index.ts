@@ -23,6 +23,37 @@ import { render as renderAggregate } from './d5-aggregate/renderer.js';
 
 export { attachPanZoom, type PanZoomOptions, type PanZoomHandle } from './shared/pan-zoom.js';
 
+// A container can host attachPanZoom + attachDomainToggle (etc.) at once — mark any other
+// interactive overlay you add to that same container with this so attachPanZoom's drag
+// handling skips it too (see src/shared/overlay.ts for why this matters).
+export { markOverlay, isOverlayEvent, OVERLAY_ATTR } from './shared/overlay.js';
+
+// The db + parse pair for each diagram type, exported so a consumer can build a db to pass
+// to `attachDomainToggle` / etc. (they need the actual parsed data, not just an SVG string —
+// `mermaid.render()` doesn't hand that back). `attachDomainToggle` performs the first render
+// too, so parsing is the only step needed before attaching:
+//   const db = new D5DomainDb(); parseDomain(source, db); attachDomainToggle(svg, db, container);
+export { D5DomainDb, type D5DomainReadable } from './d5-domain/db.js';
+export { parseDomain };
+export { D5SubdomainDb, type D5SubdomainReadable } from './d5-subdomain/db.js';
+export { parseSubdomain };
+export { D5ContextDb, type D5ContextReadable } from './d5-context/db.js';
+export { parseContext };
+export { D5AggregateDb, type D5AggregateReadable } from './d5-aggregate/db.js';
+export { parseAggregate };
+
+export {
+  attachToggle,
+  type ToggleAdapter,
+  type ToggleItem,
+  type ToggleOptions,
+  type ToggleHandle,
+} from './shared/toggle.js';
+export { attachDomainToggle, domainToggleAdapter } from './d5-domain/toggle.js';
+export { attachSubdomainToggle, subdomainToggleAdapter } from './d5-subdomain/toggle.js';
+export { attachContextToggle, contextToggleAdapter } from './d5-context/toggle.js';
+export { attachAggregateToggle, aggregateToggleAdapter } from './d5-aggregate/toggle.js';
+
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
 function createRenderer(db: { clear(): void }, renderFn: (db: any, container: SVGSVGElement) => void) {

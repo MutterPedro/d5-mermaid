@@ -1,4 +1,4 @@
-import type { D5SubdomainDb } from './db.js';
+import type { D5SubdomainReadable } from './db.js';
 import type { SubdomainType } from './db.js';
 import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
@@ -198,7 +198,7 @@ function generateCurvePath(points: { x: number; y: number }[]): string {
   return d;
 }
 
-export function render(db: D5SubdomainDb, container: SVGSVGElement): void {
+export function render(db: D5SubdomainReadable, container: SVGSVGElement): void {
   addArrowMarker(container);
 
   const title = db.getTitle();

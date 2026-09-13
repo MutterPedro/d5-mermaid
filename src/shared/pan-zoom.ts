@@ -10,6 +10,8 @@
 // which such libraries can't turn into a usable pixel size. This reads only the `viewBox`
 // (the actual content size) and the container's own measured box, sidestepping that.
 
+import { markOverlay, isOverlayEvent } from './overlay.js';
+
 const CONTROLS_ATTR = 'data-d5-pan-zoom-controls';
 
 export interface PanZoomOptions {
@@ -39,10 +41,6 @@ export interface PanZoomHandle {
   destroy(): void;
 }
 
-function isControlEvent(e: Event): boolean {
-  const target = e.target as Element | null;
-  return !!target?.closest(`[${CONTROLS_ATTR}]`);
-}
 
 /**
  * Attach pan/zoom to an already-rendered `<svg>` (e.g. the output of `mermaid.render()`).
@@ -114,12 +112,13 @@ export function attachPanZoom(
     zoomAt(e.clientX - r.left, e.clientY - r.top, e.deltaY < 0 ? wheelStep : 1 / wheelStep);
   };
 
-  // Guard against the control buttons: capturing the pointer here on every pointerdown
+  // Guard against overlay UI — this helper's own controls, but also e.g. an attachToggle
+  // checklist sharing this same container: capturing the pointer here on every pointerdown
   // (needed so a fast drag keeps tracking outside the container) retargets the browser's
   // synthesized `click` event away from whatever element the pointerdown started on — a
-  // click that starts on a control button never reaches its own click handler otherwise.
+  // click that starts on a button/checkbox never reaches its own click handler otherwise.
   const onPointerDown = (e: PointerEvent): void => {
-    if (isControlEvent(e)) return;
+    if (isOverlayEvent(e)) return;
     panning = true;
     startX = e.clientX - x;
     startY = e.clientY - y;
@@ -143,7 +142,7 @@ export function attachPanZoom(
     container.style.cursor = 'grab';
   };
   const onDblClick = (e: MouseEvent): void => {
-    if (isControlEvent(e)) return;
+    if (isOverlayEvent(e)) return;
     const r = container.getBoundingClientRect();
     zoomAt(e.clientX - r.left, e.clientY - r.top, dblClickStep);
   };
@@ -161,6 +160,7 @@ export function attachPanZoom(
   if (withControls) {
     controlsEl = document.createElement('div');
     controlsEl.setAttribute(CONTROLS_ATTR, '');
+    markOverlay(controlsEl);
     Object.assign(controlsEl.style, {
       position: 'absolute',
       right: '8px',

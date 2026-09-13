@@ -1,4 +1,4 @@
-import type { D5ContextDb } from './db.js';
+import type { D5ContextReadable } from './db.js';
 import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
 import { measureText, wrapText, lineHeight, type FontSpec } from '../shared/text.js';
@@ -166,7 +166,7 @@ function generateCurvePath(points: { x: number; y: number }[]): string {
   return d;
 }
 
-export function render(db: D5ContextDb, container: SVGSVGElement): void {
+export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   addArrowMarker(container);
 
   const title = db.getTitle();

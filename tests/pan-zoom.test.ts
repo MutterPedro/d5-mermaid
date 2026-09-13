@@ -238,6 +238,55 @@ describe('attachPanZoom', () => {
     });
   });
 
+  // Regression test for a second real bug, same family as the one above, caught hand-testing
+  // attachPanZoom composed with attachToggle on the same container (exactly what the example
+  // pages do): unchecking a toggle-panel checkbox did nothing at all. Root cause: this
+  // helper's pointerdown guard only recognised *its own* `[data-d5-pan-zoom-controls]`, so it
+  // still captured the pointer for clicks on a *different* helper's overlay UI sharing the
+  // container, swallowing them the same way. Fixed via a shared `data-d5-overlay` marker
+  // (src/shared/overlay.ts) any attach*() helper's UI can carry, so this one doesn't need to
+  // know the toggle panel (or any other overlay) exists by name.
+  describe('regression: pan must also skip a *different* helper\'s overlay sharing the container', () => {
+    it('a pointerdown on a foreign element marked data-d5-overlay does not start a pan', () => {
+      attachPanZoom(svg, container);
+
+      const foreignOverlay = document.createElement('div');
+      foreignOverlay.setAttribute('data-d5-overlay', '');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      foreignOverlay.appendChild(checkbox);
+      container.appendChild(foreignOverlay);
+
+      const before = getTransform(svg);
+      checkbox.dispatchEvent(pointerEvent('pointerdown', 10, 10));
+      container.dispatchEvent(pointerEvent('pointermove', 80, 80));
+
+      expect(getTransform(svg)).toEqual(before);
+    });
+
+    it('a click on that foreign overlay still reaches its own handler', () => {
+      attachPanZoom(svg, container);
+
+      const foreignOverlay = document.createElement('div');
+      foreignOverlay.setAttribute('data-d5-overlay', '');
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      let changed = false;
+      checkbox.addEventListener('change', () => {
+        changed = true;
+      });
+      foreignOverlay.appendChild(checkbox);
+      container.appendChild(foreignOverlay);
+
+      checkbox.dispatchEvent(pointerEvent('pointerdown', 10, 10));
+      checkbox.dispatchEvent(pointerEvent('pointerup', 10, 10));
+      checkbox.checked = true;
+      checkbox.dispatchEvent(new Event('change', { bubbles: true }));
+
+      expect(changed).toBe(true);
+    });
+  });
+
   it('degrades quietly when setPointerCapture is unavailable (e.g. jsdom itself)', () => {
     // jsdom doesn't implement it at all — this just documents/asserts attach + drag don't throw.
     expect(typeof container.setPointerCapture).not.toBe('function');
