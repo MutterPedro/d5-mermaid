@@ -61,7 +61,8 @@
       border-bottom: 1px dashed #e2e8f0;
     }
     .diagram-card .note a { color: #2563eb; }
-    /* Sizing only — attachPanZoom() (from dist/index.js) handles cursor/overflow/controls. */
+    /* Sizing only — attachPanZoom()/attach<Type>Toggle() (from dist/index.js) handle
+       cursor/overflow/controls/the checklist panel. */
     .render-area {
       position: relative;
       height: 480px;
@@ -99,8 +100,6 @@
   <div id="gallery">Loading…</div>
 
   <script type="module">
-    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
-
     // Manifest — extended one example at a time.
     const MANIFEST = [
       {
@@ -222,16 +221,38 @@
         .trim();
     }
 
+    // The toggle checklist needs the parsed db (to filter + re-render), which the old
+    // mermaid.render() pipeline never handed back — so every diagram is now rendered
+    // through this package's own parse()/attach<Type>Toggle() pair directly, dispatching
+    // on the diagram keyword (see examples/one.html's `?toggle=1` mode for the same idea).
+    function renderWithToggle(mod, src, svg, container) {
+      const kind = src.trim().split('\n')[0].trim();
+      const table = {
+        'd5-domain': [mod.D5DomainDb, mod.parseDomain, mod.attachDomainToggle],
+        'd5-subdomain': [mod.D5SubdomainDb, mod.parseSubdomain, mod.attachSubdomainToggle],
+        'd5-context': [mod.D5ContextDb, mod.parseContext, mod.attachContextToggle],
+        'd5-aggregate': [mod.D5AggregateDb, mod.parseAggregate, mod.attachAggregateToggle],
+      };
+      const entry = table[kind];
+      if (!entry) throw new Error(`unknown diagram type: ${kind}`);
+      const [Db, parse, attachDiagramToggle] = entry;
+      const db = new Db();
+      parse(src, db);
+      let panZoom;
+      attachDiagramToggle(svg, db, container, {
+        panelTitle: 'Show',
+        onChange: () => panZoom?.fit(),
+      });
+      panZoom = mod.attachPanZoom(svg, container, { hint: 'scroll to zoom · drag to pan' });
+    }
+
     async function main() {
-      const { d5Diagrams, attachPanZoom } = await import('../dist/index.js?v=' + Date.now());
-      mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
-      await mermaid.registerExternalDiagrams(d5Diagrams);
+      const mod = await import('../dist/index.js?v=' + Date.now());
 
       buildToc();
 
       const root = document.getElementById('gallery');
       root.innerHTML = '';
-      let idx = 0;
 
       for (let gi = 0; gi < MANIFEST.length; gi++) {
         const group = MANIFEST[gi];
@@ -292,11 +313,10 @@
 
           root.appendChild(card);
 
-          const renderId = 'd5-gallery-' + idx++;
           try {
-            const { svg } = await mermaid.render(renderId, diagramSrc);
-            area.innerHTML = svg;
-            attachPanZoom(area.querySelector('svg'), area, { hint: 'scroll to zoom · drag to pan' });
+            const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+            area.appendChild(svg);
+            renderWithToggle(mod, diagramSrc, svg, area);
           } catch (e) {
             area.innerHTML = '';
             const err = document.createElement('div');
