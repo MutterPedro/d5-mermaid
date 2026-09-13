@@ -236,15 +236,24 @@ and takes an options object: `minScale` / `maxScale` (default `0.05` / `20`), `w
 
 Each diagram type has an `attach<Type>Toggle` that draws a checklist over the diagram —
 unchecking an item hides it (and anything that only referenced it) and re-lays-out the
-rest, rather than just fading it in place. The toggle unit is "the peer group one level
-under that view's outermost container":
+rest, rather than just fading it in place. The rule is the same in every view: toggle the
+individual boxes *inside* a container, never the container itself — a `Domain`/`Subdomain`
+stays even with every box inside it unchecked:
 
 | Diagram | Toggle unit | Also removed when hidden |
 |---|---|---|
-| `d5-domain` | `Domain` | its `Subdomain`s, and any `Rel` touching one of them |
-| `d5-subdomain` | `Subdomain` | its `BoundedContext`s, and any `Rel` touching one of them |
+| `d5-domain` | `Subdomain` | any `Rel` touching it (its `Domain` always stays) |
+| `d5-subdomain` | `BoundedContext` | any `Rel` touching it (its `Subdomain` always stays) |
 | `d5-context` | `Aggregate` | any `Rel`/`Event`/`Policy` touching it (`Term`s, `ReadModel`s, and the `BoundedContext` are always shown) |
 | `d5-aggregate` | `Entity` / `ValueObject` | nothing else — this view has no `Rel`; `Invariants` are free text and always shown as declared |
+
+The checklist groups items under a heading once there's more than one group to distinguish
+— a `Subdomain`'s heading names its `Domain`, a `BoundedContext`'s names its `Subdomain`,
+and `d5-aggregate` groups by kind ("Entities" / "Value Objects"). A single group (e.g. one
+`Domain`, or an aggregate with no Value Objects) renders as a flat list instead — a heading
+naming the one thing everything already belongs to wouldn't add anything. `d5-context` has
+no natural sub-grouping for Aggregates, so it's always flat. Click the panel's heading to
+collapse/expand the checklist without affecting what's shown in the diagram.
 
 Unlike `attachPanZoom` (a pure post-render transform), toggling changes the actual layout,
 so it needs the parsed data — not just an SVG string, which is all `mermaid.render()` hands
@@ -266,9 +275,10 @@ The other three follow the same shape: `D5SubdomainDb`/`parseSubdomain`/`attachS
 `D5ContextDb`/`parseContext`/`attachContextToggle`, `D5AggregateDb`/`parseAggregate`/`attachAggregateToggle`.
 Each returns a handle — `{ show(id), hide(id), toggle(id), isVisible(id), getHiddenIds(), destroy() }`
 — and takes an options object: `panel` (`true`; draws the checklist), `panelTitle`
-(`"Show"`), `initiallyHidden` (an iterable of ids to start unchecked), and `onChange` (called
-with the current visible-id set after every re-render — handy for calling an `attachPanZoom`
-instance's `.fit()` on the same svg, since hiding things changes the diagram's size).
+(`"Show"`), `collapsed` (`false`; start the checklist collapsed), `initiallyHidden` (an
+iterable of ids to start unchecked), and `onChange` (called with the current visible-id set
+after every re-render — handy for calling an `attachPanZoom` instance's `.fit()` on the
+same svg, since hiding things changes the diagram's size).
 
 `attachPanZoom` and an `attach<Type>Toggle` can be pointed at the same container (see
 `examples/one.html?toggle=1`) — mark any overlay UI you add there yourself with

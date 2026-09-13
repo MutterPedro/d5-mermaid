@@ -16,6 +16,14 @@ export interface ToggleItem {
   /** The id authors gave this element in the D5 source (`Domain(id, ...)`, etc.). */
   id: string;
   label: string;
+  /**
+   * The item's parent in the D5 source (a Subdomain's owning Domain, a Bounded Context's
+   * owning Subdomain, ...), when the toggle unit sits one level under a container that can
+   * itself repeat. Items are grouped under this label in the checklist — but only once
+   * there's more than one distinct group; a single group renders flat, since a heading
+   * naming the one thing everything already belongs to adds nothing.
+   */
+  group?: string;
 }
 
 export interface ToggleAdapter<Db> {
@@ -34,6 +42,8 @@ export interface ToggleOptions {
   panel?: boolean;
   /** Heading text above the checklist. Default "Show". */
   panelTitle?: string;
+  /** Start the checklist collapsed (only the heading shown). Default false. */
+  collapsed?: boolean;
   /** ids to start hidden (unchecked). Default: none — everything starts visible. */
   initiallyHidden?: Iterable<string>;
   /** Called after every re-render (initial included) a toggle causes. Useful for e.g.
@@ -76,6 +86,7 @@ export function attachToggle<Db>(
   const items = adapter.items(db);
   const hidden = new Set<string>(options.initiallyHidden ?? []);
   const checkboxes = new Map<string, HTMLInputElement>();
+  let collapsed = options.collapsed ?? false;
 
   function visibleIds(): Set<string> {
     return new Set(items.map((i) => i.id).filter((id) => !hidden.has(id)));
@@ -96,6 +107,39 @@ export function attachToggle<Db>(
   }
 
   let panelEl: HTMLElement | null = null;
+  let bodyEl: HTMLElement | null = null;
+  let chevronEl: HTMLElement | null = null;
+
+  function setCollapsed(next: boolean): void {
+    collapsed = next;
+    if (bodyEl) bodyEl.hidden = collapsed;
+    if (chevronEl) chevronEl.textContent = collapsed ? '▸' : '▾';
+  }
+
+  function addRow(parent: HTMLElement, item: ToggleItem): void {
+    const row = document.createElement('label');
+    Object.assign(row.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '5px',
+      padding: '2px 0',
+      cursor: 'pointer',
+      whiteSpace: 'nowrap',
+    } as CSSStyleDeclaration);
+
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.checked = !hidden.has(item.id);
+    checkbox.addEventListener('change', () => setHidden(item.id, !checkbox.checked));
+    checkboxes.set(item.id, checkbox);
+
+    const text = document.createElement('span');
+    text.textContent = item.label;
+
+    row.appendChild(checkbox);
+    row.appendChild(text);
+    parent.appendChild(row);
+  }
 
   if (withPanel && items.length > 0) {
     if (getComputedStyle(container).position === 'static') {
@@ -111,6 +155,7 @@ export function attachToggle<Db>(
       left: '8px',
       zIndex: '10',
       maxHeight: 'calc(100% - 16px)',
+      maxWidth: '220px',
       overflowY: 'auto',
       background: 'rgba(255,255,255,0.95)',
       border: '1px solid #cbd5e1',
@@ -121,35 +166,58 @@ export function attachToggle<Db>(
     } as CSSStyleDeclaration);
 
     const heading = document.createElement('div');
-    heading.textContent = panelTitle;
-    Object.assign(heading.style, { fontWeight: '600', marginBottom: '4px' } as CSSStyleDeclaration);
+    Object.assign(heading.style, {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
+      fontWeight: '600',
+      cursor: 'pointer',
+      userSelect: 'none',
+    } as CSSStyleDeclaration);
+
+    chevronEl = document.createElement('span');
+    const headingText = document.createElement('span');
+    headingText.textContent = panelTitle;
+    heading.appendChild(chevronEl);
+    heading.appendChild(headingText);
+    heading.addEventListener('click', () => setCollapsed(!collapsed));
     panelEl.appendChild(heading);
 
+    bodyEl = document.createElement('div');
+    bodyEl.style.marginTop = '4px';
+    panelEl.appendChild(bodyEl);
+
+    // Group items only when there's more than one distinct group — a single group (or no
+    // items carrying one at all) renders as the flat list it always has.
+    const groups: string[] = [];
     items.forEach((item) => {
-      const row = document.createElement('label');
-      Object.assign(row.style, {
-        display: 'flex',
-        alignItems: 'center',
-        gap: '5px',
-        padding: '2px 0',
-        cursor: 'pointer',
-        whiteSpace: 'nowrap',
-      } as CSSStyleDeclaration);
-
-      const checkbox = document.createElement('input');
-      checkbox.type = 'checkbox';
-      checkbox.checked = !hidden.has(item.id);
-      checkbox.addEventListener('change', () => setHidden(item.id, !checkbox.checked));
-      checkboxes.set(item.id, checkbox);
-
-      const text = document.createElement('span');
-      text.textContent = item.label;
-
-      row.appendChild(checkbox);
-      row.appendChild(text);
-      panelEl!.appendChild(row);
+      if (item.group !== undefined && !groups.includes(item.group)) groups.push(item.group);
     });
+    const useGroups = groups.length > 1;
 
+    if (useGroups) {
+      groups.forEach((group) => {
+        const groupHeading = document.createElement('div');
+        groupHeading.textContent = group;
+        Object.assign(groupHeading.style, {
+          fontWeight: '600',
+          color: '#64748b',
+          marginTop: '6px',
+          fontSize: '10px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.02em',
+        } as CSSStyleDeclaration);
+        bodyEl!.appendChild(groupHeading);
+        items.filter((item) => item.group === group).forEach((item) => addRow(bodyEl!, item));
+      });
+      // items with no group (shouldn't normally happen once any item declares one, but
+      // don't silently drop them if it does) render after the grouped ones, flat.
+      items.filter((item) => item.group === undefined).forEach((item) => addRow(bodyEl!, item));
+    } else {
+      items.forEach((item) => addRow(bodyEl!, item));
+    }
+
+    setCollapsed(collapsed);
     container.appendChild(panelEl);
   }
 

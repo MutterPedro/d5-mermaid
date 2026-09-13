@@ -2,20 +2,29 @@ import type { D5DomainReadable } from './db.js';
 import { render } from './renderer.js';
 import { attachToggle, type ToggleAdapter, type ToggleOptions, type ToggleHandle } from '../shared/toggle.js';
 
-/** Toggle unit: a `Domain(...)` block — hides it, its Subdomains, and any Rel touching one. */
+/** Toggle unit: a `Subdomain(...)` — hides it and any Rel touching it, grouped in the
+ * checklist by its owning `Domain` (once there's more than one). Domains themselves are
+ * always shown — consistent with every other view toggling the individual boxes inside a
+ * container, never the container(s). */
 export const domainToggleAdapter: ToggleAdapter<D5DomainReadable> = {
-  items: (db) => db.getDomains().map((d) => ({ id: d.id, label: d.label })),
+  items: (db) => {
+    const domainLabel = new Map(db.getDomains().map((d) => [d.id, d.label]));
+    return db.getSubdomains().map((sd) => ({
+      id: sd.id,
+      label: sd.label,
+      group: domainLabel.get(sd.domainId),
+    }));
+  },
 
   filter: (db, hidden) => {
-    const domains = db.getDomains().filter((d) => !hidden.has(d.id));
-    const subdomains = db.getSubdomains().filter((sd) => !hidden.has(sd.domainId));
+    const subdomains = db.getSubdomains().filter((sd) => !hidden.has(sd.id));
     const visibleSubdomainIds = new Set(subdomains.map((sd) => sd.id));
     const relationships = db
       .getRelationships()
       .filter((r) => visibleSubdomainIds.has(r.source) && visibleSubdomainIds.has(r.target));
 
     return {
-      getDomains: () => domains,
+      getDomains: () => db.getDomains(),
       getSubdomains: () => subdomains,
       getRelationships: () => relationships,
       getDirection: () => db.getDirection(),
@@ -24,8 +33,8 @@ export const domainToggleAdapter: ToggleAdapter<D5DomainReadable> = {
   },
 };
 
-/** Attach a Domain checklist to an already-rendered `d5-domain` SVG. Unchecking a Domain
- * hides it, its Subdomains, and any Rel touching one, and re-lays-out the rest. */
+/** Attach a Subdomain checklist to an already-rendered `d5-domain` SVG. Unchecking a
+ * Subdomain hides it and any Rel touching it, and re-lays-out the rest. */
 export function attachDomainToggle(
   svg: SVGSVGElement,
   db: D5DomainReadable,

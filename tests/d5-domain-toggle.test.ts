@@ -23,26 +23,29 @@ describe('domainToggleAdapter', () => {
     db = buildTwoDomainDb();
   });
 
-  it('lists each Domain as a toggle item', () => {
+  it('lists each Subdomain as a toggle item, grouped by its owning Domain', () => {
     expect(domainToggleAdapter.items(db)).toEqual([
-      { id: 'mobility', label: 'Mobility' },
-      { id: 'delivery', label: 'Delivery' },
+      { id: 'ride_matching', label: 'Ride Matching', group: 'Mobility' },
+      { id: 'driver_identity', label: 'Driver Identity', group: 'Mobility' },
+      { id: 'courier_dispatch', label: 'Courier Dispatch', group: 'Delivery' },
     ]);
   });
 
-  it('hiding a domain drops its subdomains and any Rel touching one of them', () => {
-    const filtered = domainToggleAdapter.filter(db, new Set(['mobility']));
+  it('hiding a subdomain drops any Rel touching it, but never a Domain itself', () => {
+    const filtered = domainToggleAdapter.filter(db, new Set(['driver_identity']));
 
-    expect(filtered.getDomains()).toEqual([{ id: 'delivery', label: 'Delivery' }]);
-    expect(filtered.getSubdomains().map((s) => s.id)).toEqual(['courier_dispatch']);
-    // both rels touched mobility (either directly, or via driver_identity) -> both gone
+    expect(filtered.getDomains()).toEqual([
+      { id: 'mobility', label: 'Mobility' },
+      { id: 'delivery', label: 'Delivery' },
+    ]); // both domains always stay
+    expect(filtered.getSubdomains().map((s) => s.id).sort()).toEqual(['courier_dispatch', 'ride_matching']);
+    // both rels touched driver_identity -> both gone
     expect(filtered.getRelationships()).toEqual([]);
   });
 
-  it('hiding the other domain leaves the purely-intra-domain rel of the remaining one intact', () => {
-    const filtered = domainToggleAdapter.filter(db, new Set(['delivery']));
+  it('hiding a subdomain with no cross-domain rel only drops rels touching it', () => {
+    const filtered = domainToggleAdapter.filter(db, new Set(['courier_dispatch']));
 
-    expect(filtered.getDomains()).toEqual([{ id: 'mobility', label: 'Mobility' }]);
     expect(filtered.getSubdomains().map((s) => s.id).sort()).toEqual(['driver_identity', 'ride_matching']);
     expect(filtered.getRelationships()).toEqual([
       { source: 'ride_matching', target: 'driver_identity', label: 'uses' },
@@ -59,7 +62,7 @@ describe('domainToggleAdapter', () => {
 });
 
 describe('attachDomainToggle (integration, real renderer)', () => {
-  it('hiding a domain removes its .d5-domain / .d5-subdomain groups and re-lays-out the rest', () => {
+  it('hiding a subdomain removes its .d5-subdomain group and any Rel touching it, keeps both Domains', () => {
     const db = buildTwoDomainDb();
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -70,21 +73,23 @@ describe('attachDomainToggle (integration, real renderer)', () => {
     expect(svg.querySelectorAll('.d5-domain')).toHaveLength(2);
     expect(svg.querySelectorAll('.d5-subdomain')).toHaveLength(3);
 
-    handle.hide('mobility');
+    handle.hide('driver_identity');
 
-    expect(svg.querySelectorAll('.d5-domain')).toHaveLength(1);
-    const subdomainIds = Array.from(svg.querySelectorAll('.d5-subdomain')).map((el) => el.textContent);
-    expect(subdomainIds.join(' ')).toContain('Courier Dispatch');
-    expect(subdomainIds.join(' ')).not.toContain('Ride Matching');
-    // both edges touched the hidden domain (one directly, one via driver_identity)
+    // both domains stay — only the hidden subdomain is gone
+    expect(svg.querySelectorAll('.d5-domain')).toHaveLength(2);
+    const subdomainText = Array.from(svg.querySelectorAll('.d5-subdomain')).map((el) => el.textContent).join(' ');
+    expect(subdomainText).toContain('Ride Matching');
+    expect(subdomainText).toContain('Courier Dispatch');
+    expect(subdomainText).not.toContain('Driver Identity');
+    // both edges touched the hidden subdomain
     expect(svg.querySelectorAll('.d5-rel')).toHaveLength(0);
 
-    handle.show('mobility');
+    handle.show('driver_identity');
     expect(svg.querySelectorAll('.d5-domain')).toHaveLength(2);
     expect(svg.querySelectorAll('.d5-subdomain')).toHaveLength(3);
   });
 
-  it('renders a checklist panel with one row per Domain by default', () => {
+  it('renders a checklist panel grouped by Domain, with one row per Subdomain', () => {
     const db = buildTwoDomainDb();
     const container = document.createElement('div');
     document.body.appendChild(container);
@@ -94,8 +99,27 @@ describe('attachDomainToggle (integration, real renderer)', () => {
     attachDomainToggle(svg, db, container);
 
     const boxes = container.querySelectorAll('[data-d5-toggle-panel] input[type="checkbox"]');
-    expect(boxes).toHaveLength(2);
-    expect(container.querySelector('[data-d5-toggle-panel]')!.textContent).toContain('Mobility');
-    expect(container.querySelector('[data-d5-toggle-panel]')!.textContent).toContain('Delivery');
+    expect(boxes).toHaveLength(3);
+    const panelText = container.querySelector('[data-d5-toggle-panel]')!.textContent!;
+    expect(panelText).toContain('Mobility');
+    expect(panelText).toContain('Delivery');
+    expect(panelText).toContain('Ride Matching');
+    expect(panelText).toContain('Courier Dispatch');
+  });
+
+  it('renders a flat (ungrouped) checklist for a single-Domain diagram', () => {
+    const db = new D5DomainDb();
+    db.addDomain('acme', 'ACME');
+    db.addSubdomain('catalog', 'Catalog', 'core', 'acme');
+    db.addSubdomain('ordering', 'Ordering', 'core', 'acme');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    attachDomainToggle(svg, db, container);
+
+    expect(container.querySelector('[data-d5-toggle-panel]')!.textContent).not.toContain('ACME');
+    expect(container.querySelectorAll('[data-d5-toggle-panel] input[type="checkbox"]')).toHaveLength(2);
   });
 });

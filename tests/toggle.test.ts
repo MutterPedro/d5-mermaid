@@ -191,4 +191,126 @@ describe('attachToggle', () => {
     const db: FakeDb = { items: [] };
     expect(() => attachToggle(svg, db, fakeRender, fakeAdapter)).toThrow(/no container/i);
   });
+
+  describe('collapsible panel', () => {
+    function panelHeading(container: HTMLElement): HTMLElement {
+      return container.querySelector('[data-d5-toggle-panel] > div') as HTMLElement;
+    }
+    function panelBody(container: HTMLElement): HTMLElement {
+      // the body is the heading's next sibling inside the panel
+      return panelHeading(container).nextElementSibling as HTMLElement;
+    }
+
+    it('starts expanded by default', () => {
+      const { container, svg, db } = setUp();
+      attachToggle(svg, db, fakeRender, fakeAdapter);
+      expect(panelBody(container).hidden).toBe(false);
+    });
+
+    it('clicking the heading collapses and expands the checklist body', () => {
+      const { container, svg, db } = setUp();
+      attachToggle(svg, db, fakeRender, fakeAdapter);
+      const heading = panelHeading(container);
+
+      heading.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(panelBody(container).hidden).toBe(true);
+
+      heading.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(panelBody(container).hidden).toBe(false);
+    });
+
+    it('collapsing does not change which items are visible in the diagram', () => {
+      const { container, svg, db } = setUp();
+      attachToggle(svg, db, fakeRender, fakeAdapter);
+      panelHeading(container).dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      expect(renderedIds(svg)).toEqual(['item0', 'item1', 'item2']);
+    });
+
+    it('honors the collapsed: true starting option', () => {
+      const { container, svg, db } = setUp();
+      attachToggle(svg, db, fakeRender, fakeAdapter, undefined, { collapsed: true });
+      expect(panelBody(container).hidden).toBe(true);
+    });
+  });
+
+  describe('grouped items', () => {
+    interface GroupedItem {
+      id: string;
+      label: string;
+      group: string;
+    }
+    interface GroupedDb {
+      items: GroupedItem[];
+    }
+    const groupedAdapter: ToggleAdapter<GroupedDb> = {
+      items: (db) => db.items,
+      filter: (db, hidden) => ({ items: db.items.filter((i) => !hidden.has(i.id)) }),
+    };
+    function groupedFakeRender(db: GroupedDb, container: SVGSVGElement): void {
+      db.items.forEach((item) => {
+        const g = document.createElementNS(SVG_NS, 'g');
+        g.setAttribute('class', 'item');
+        g.setAttribute('data-id', item.id);
+        container.appendChild(g);
+      });
+    }
+
+    it('renders a flat list (no group headings) when every item shares one group', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+      container.appendChild(svg);
+      const db: GroupedDb = {
+        items: [
+          { id: 'a', label: 'A', group: 'Only Group' },
+          { id: 'b', label: 'B', group: 'Only Group' },
+        ],
+      };
+      attachToggle(svg, db, groupedFakeRender, groupedAdapter);
+      expect(container.querySelector('[data-d5-toggle-panel]')!.textContent).not.toContain('Only Group');
+      expect(container.querySelectorAll('[data-d5-toggle-panel] input[type="checkbox"]')).toHaveLength(2);
+    });
+
+    it('renders a heading per distinct group, items nested under their own group, in first-seen order', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+      container.appendChild(svg);
+      const db: GroupedDb = {
+        items: [
+          { id: 'a', label: 'A', group: 'Group Two' },
+          { id: 'b', label: 'B', group: 'Group One' },
+          { id: 'c', label: 'C', group: 'Group Two' },
+        ],
+      };
+      attachToggle(svg, db, groupedFakeRender, groupedAdapter);
+
+      const panelText = container.querySelector('[data-d5-toggle-panel]')!.textContent!;
+      expect(panelText).toContain('Group One');
+      expect(panelText).toContain('Group Two');
+      // "Group Two" (with its A, C) appears before "Group One" (with its B) — first-seen order
+      expect(panelText.indexOf('Group Two')).toBeLessThan(panelText.indexOf('Group One'));
+
+      const rows = Array.from(
+        container.querySelectorAll('[data-d5-toggle-panel] label'),
+      ) as HTMLLabelElement[];
+      expect(rows.map((r) => r.textContent)).toEqual(['A', 'C', 'B']);
+    });
+
+    it('hiding a grouped item behaves exactly like a flat one', () => {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+      container.appendChild(svg);
+      const db: GroupedDb = {
+        items: [
+          { id: 'a', label: 'A', group: 'Group One' },
+          { id: 'b', label: 'B', group: 'Group Two' },
+        ],
+      };
+      const handle = attachToggle(svg, db, groupedFakeRender, groupedAdapter);
+      handle.hide('a');
+      expect(Array.from(svg.querySelectorAll('.item')).map((el) => el.getAttribute('data-id'))).toEqual(['b']);
+    });
+  });
 });

@@ -21,11 +21,11 @@ describe('aggregateToggleAdapter', () => {
     db = buildDb();
   });
 
-  it('lists Entities then ValueObjects as toggle items', () => {
+  it('lists Entities then ValueObjects as toggle items, grouped by kind', () => {
     expect(aggregateToggleAdapter.items(db)).toEqual([
-      { id: 'order', label: 'Order' },
-      { id: 'order_item', label: 'Order Item' },
-      { id: 'money', label: 'Money' },
+      { id: 'order', label: 'Order', group: 'Entities' },
+      { id: 'order_item', label: 'Order Item', group: 'Entities' },
+      { id: 'money', label: 'Money', group: 'Value Objects' },
     ]);
   });
 
@@ -62,5 +62,36 @@ describe('attachAggregateToggle (integration, real renderer)', () => {
     expect(svg.textContent).toContain('Order Item');
     // Invariants band is free text, unaffected by member toggles
     expect(svg.textContent).toContain('An order always has at least one item');
+  });
+
+  it('renders the checklist grouped under "Entities" and "Value Objects" headings', () => {
+    const db = buildDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    attachAggregateToggle(svg, db, container);
+
+    const panelText = container.querySelector('[data-d5-toggle-panel]')!.textContent!;
+    expect(panelText).toContain('Entities');
+    expect(panelText).toContain('Value Objects');
+    expect(panelText.indexOf('Entities')).toBeLessThan(panelText.indexOf('Value Objects'));
+  });
+
+  it('renders a flat checklist when there are no Value Objects to form a second group', () => {
+    const db = new D5AggregateDb();
+    db.setAggregate('cart_agg', 'Cart', 'Cart');
+    db.addEntity('cart', 'Cart');
+    db.addEntity('line_item', 'Line Item');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    attachAggregateToggle(svg, db, container);
+
+    expect(container.querySelector('[data-d5-toggle-panel]')!.textContent).not.toContain('Entities');
+    expect(container.querySelectorAll('[data-d5-toggle-panel] input[type="checkbox"]')).toHaveLength(2);
   });
 });

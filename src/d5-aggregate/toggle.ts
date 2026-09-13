@@ -2,13 +2,14 @@ import type { D5AggregateReadable } from './db.js';
 import { render } from './renderer.js';
 import { attachToggle, type ToggleAdapter, type ToggleOptions, type ToggleHandle } from '../shared/toggle.js';
 
-/** Toggle unit: an `Entity` or `ValueObject` member. `d5-aggregate` has no `Rel` (containment
- * implies direct reference), so there are no edges to drop — just the member's own box.
- * `Invariants` are free text and always shown as declared; they aren't re-derived per member. */
+/** Toggle unit: an `Entity` or `ValueObject` member, grouped in the checklist by kind.
+ * `d5-aggregate` has no `Rel` (containment implies direct reference), so there are no edges
+ * to drop — just the member's own box. `Invariants` are free text and always shown as
+ * declared; they aren't re-derived per member. */
 export const aggregateToggleAdapter: ToggleAdapter<D5AggregateReadable> = {
   items: (db) => [
-    ...db.getEntities().map((e) => ({ id: e.id, label: e.label })),
-    ...db.getValueObjects().map((v) => ({ id: v.id, label: v.label })),
+    ...db.getEntities().map((e) => ({ id: e.id, label: e.label, group: 'Entities' })),
+    ...db.getValueObjects().map((v) => ({ id: v.id, label: v.label, group: 'Value Objects' })),
   ],
 
   filter: (db, hidden) => {
