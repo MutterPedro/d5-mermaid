@@ -2,6 +2,43 @@
 
 All notable changes to the `d5-mermaid` package are documented in this file.
 
+## 0.5.0
+
+- Add `attachDomainToggle`, `attachSubdomainToggle`, `attachContextToggle`,
+  `attachAggregateToggle` — a checklist overlay that hides/shows components in an
+  already-rendered diagram, re-laying-out the rest rather than just fading them in place.
+  The toggle unit is the same rule in every view: the individual boxes *inside* a
+  container, never the container itself — a `Domain`/`Subdomain` stays even with every box
+  inside it unchecked.
+  | Diagram | Toggle unit | Also removed when hidden |
+  |---|---|---|
+  | `d5-domain` | `Subdomain` | any `Rel` touching it (its `Domain` always stays) |
+  | `d5-subdomain` | `BoundedContext` | any `Rel` touching it (its `Subdomain` always stays) |
+  | `d5-context` | `Aggregate` | any `Rel`/`Event`/`Policy` touching it (`Term`s, `ReadModel`s, the `BoundedContext` always stay) |
+  | `d5-aggregate` | `Entity` / `ValueObject` | nothing else — this view has no `Rel`; `Invariants` are always shown as declared |
+  - Items are grouped under a heading once there's more than one group to distinguish (a
+    `Subdomain`'s heading names its `Domain`, a `BoundedContext`'s names its `Subdomain`,
+    `d5-aggregate` groups by kind); a single group renders flat instead. Each group heading
+    is itself a tri-state "select all" checkbox for that group.
+  - The checklist panel is collapsible (click its heading) independent of what's shown in
+    the diagram.
+  - Needs the parsed db directly, not just an SVG string — `mermaid.render()` never hands
+    that back. Also newly exported for this: `D5DomainDb`/`parseDomain`,
+    `D5SubdomainDb`/`parseSubdomain`, `D5ContextDb`/`parseContext`,
+    `D5AggregateDb`/`parseAggregate`.
+- Fix: `attachPanZoom` composed with an `attach<Type>Toggle` on the same container (exactly
+  what the example pages do) swallowed clicks on the toggle checklist — its pointerdown
+  guard only recognised its own `+`/`−`/fit controls, not another helper's overlay UI
+  sharing the container. Fixed with a shared `data-d5-overlay` marker any `attach*()`
+  helper's UI can carry, also exported as `markOverlay`/`isOverlayEvent`/`OVERLAY_ATTR` for
+  custom overlays of your own.
+- Fix: `dagre.layout()` on a graph with zero nodes reports `width`/`height` as `-Infinity`,
+  not `0` — the near-universal `graph().width || 0` fallback doesn't catch it because
+  `-Infinity` is truthy in JS. Hiding every item in a container (now a normal thing to do
+  with the checklist above) hit this in `d5-domain`, `d5-subdomain`, and `d5-context` alike;
+  it also turned out to be a **pre-existing** bug for any `d5-context` diagram with only
+  `Language` terms and no `Aggregate`s. Fixed everywhere with one shared helper.
+
 ## 0.4.0
 
 - `d5-domain` accepts more than one top-level `Domain(...) { ... }` block on one canvas —
