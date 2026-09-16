@@ -329,8 +329,16 @@ export function render(db: D5SubdomainReadable, container: SVGSVGElement): void 
     if (!node) return;
 
     const colors = SUBDOMAIN_COLORS[sd.type];
-    const w = node.width;
-    const h = node.height;
+    // A compound cluster with every child hidden (all its Bounded Contexts toggled off)
+    // gets `x`/`y` from Dagre but no `width`/`height` at all — confirmed empirically against
+    // @dagrejs/dagre, not assumed. `w / 2` against `undefined` then poisons `x` with NaN,
+    // which browsers draw as a stray rect pinned at the SVG's origin. Fall back to a box
+    // sized like a single (typically-sized) Bounded Context, so the Subdomain still reads.
+    const labelW = measureText(sd.label, { size: SUBDOMAIN_LABEL_FONT, weight: 600 });
+    const fallbackW = Math.max(2 * BC_RX, labelW) + 2 * CLUSTER_PADDING_X;
+    const fallbackH = CLUSTER_PADDING_Y_TOP + CLUSTER_PADDING_Y_BOTTOM + 2 * BC_RY;
+    const w = Number.isFinite(node.width) ? node.width : fallbackW;
+    const h = Number.isFinite(node.height) ? node.height : fallbackH;
     const x = gridStartX + node.x - w / 2;
     const y = gridStartY + node.y - h / 2;
 

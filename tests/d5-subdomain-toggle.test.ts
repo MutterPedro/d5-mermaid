@@ -72,6 +72,42 @@ describe('attachSubdomainToggle (integration, real renderer)', () => {
     expect(svg.querySelectorAll('.d5-rel')).toHaveLength(1);
   });
 
+  // Regression test for a real bug found fuzz-testing the gallery (random toggles across
+  // every example — 100% reproduction on every d5-subdomain diagram): hiding every Bounded
+  // Context of *one* Subdomain, while another Subdomain still has visible ones, drew a
+  // stray rect pinned at the SVG's origin — exactly "a component not properly cleaned up,
+  // rendering a flat rectangle" as first spotted by hand. Root cause, confirmed empirically
+  // against @dagrejs/dagre: a compound cluster (a Subdomain) with zero children gets `x`/`y`
+  // from Dagre but no `width`/`height` *at all* (`undefined`, not `0`) — `undefined / 2` is
+  // `NaN`, which then poisoned the box's `x`/`y` too. This is a different code path from the
+  // "hide literally everything" case below: here the *graph* isn't empty (Order Context is
+  // still there), only one *cluster* inside it is.
+  it('hiding every Bounded Context of one Subdomain (while another still has one) draws a sane fallback box, not NaN', () => {
+    const db = buildDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachSubdomainToggle(svg, db, container, { panel: false });
+    handle.hide('product_ctx');
+    handle.hide('pricing_ctx'); // 'catalog' Subdomain's cluster is now empty
+
+    expect(svg.outerHTML).not.toContain('NaN');
+    expect(svg.outerHTML).not.toContain('Infinity');
+    expect(svg.textContent).toContain('Product Catalog'); // the empty Subdomain box itself stays
+    expect(svg.textContent).toContain('Order Context'); // untouched sibling Subdomain is fine
+
+    const catalogBox = Array.from(svg.querySelectorAll('.d5-subdomain')).find((el) =>
+      el.textContent?.includes('Product Catalog'),
+    )!;
+    const rect = catalogBox.querySelector('rect')!;
+    expect(Number(rect.getAttribute('width'))).toBeGreaterThan(0);
+    expect(Number(rect.getAttribute('height'))).toBeGreaterThan(0);
+    expect(Number.isFinite(Number(rect.getAttribute('x')))).toBe(true);
+    expect(Number.isFinite(Number(rect.getAttribute('y')))).toBe(true);
+  });
+
   // Regression test (see the analogous d5-domain one for the full story): `dagre.layout()`
   // on an empty graph reports `-Infinity` for width/height, which the `|| 0` fallback
   // doesn't catch. d5-subdomain lays every Bounded Context out in one shared graph (unlike
