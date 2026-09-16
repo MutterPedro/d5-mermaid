@@ -234,34 +234,18 @@ and takes an options object: `minScale` / `maxScale` (default `0.05` / `20`), `w
 
 ## Toggling Components
 
-Each diagram type has an `attach<Type>Toggle` that draws a checklist over the diagram —
-unchecking an item hides it (and anything that only referenced it) and re-lays-out the
-rest, rather than just fading it in place. The rule is the same in every view: toggle the
-individual boxes *inside* a container, never the container itself — a `Domain`/`Subdomain`
-stays even with every box inside it unchecked:
+Each diagram type has an `attach<Type>Toggle` that draws a checklist over the diagram — unchecking an item hides it (and anything that only referenced it) and re-lays-out the rest, rather than just fading it in place. The toggle unit is the same rule in every view: the individual boxes *inside* a container, never the container itself. A `Domain`/`Subdomain` isn't a toggle unit, but once every box inside it is unchecked it's hidden along with them rather than left behind as an empty box — and comes back as soon as one is re-checked. A `Domain`/`Subdomain` *authored* with no boxes at all still renders as declared.
 
 | Diagram | Toggle unit | Also removed when hidden |
 |---|---|---|
-| `d5-domain` | `Subdomain` | any `Rel` touching it (its `Domain` always stays) |
-| `d5-subdomain` | `BoundedContext` | any `Rel` touching it (its `Subdomain` always stays) |
-| `d5-context` | `Aggregate` | any `Rel`/`Event`/`Policy` touching it (`Term`s, `ReadModel`s, and the `BoundedContext` are always shown) |
+| `d5-domain` | `Subdomain` | any `Rel` touching it; its `Domain` too, once every one of that Domain's Subdomains is hidden |
+| `d5-subdomain` | `BoundedContext` | any `Rel` touching it; its `Subdomain` too, once every one of that Subdomain's Bounded Contexts is hidden |
+| `d5-context` | `Aggregate` | any `Rel`/`Event`/`Policy` touching it (`Term`s, `ReadModel`s, and the `BoundedContext` are always shown — that boundary never goes empty) |
 | `d5-aggregate` | `Entity` / `ValueObject` | nothing else — this view has no `Rel`; `Invariants` are free text and always shown as declared |
 
-The checklist groups items under a heading once there's more than one group to distinguish
-— a `Subdomain`'s heading names its `Domain`, a `BoundedContext`'s names its `Subdomain`,
-and `d5-aggregate` groups by kind ("Entities" / "Value Objects"). A single group (e.g. one
-`Domain`, or an aggregate with no Value Objects) renders as a flat list instead — a heading
-naming the one thing everything already belongs to wouldn't add anything. `d5-context` has
-no natural sub-grouping for Aggregates, so it's always flat. Each group heading is itself a
-checkbox — checked when every item in the group is visible, unchecked when none are,
-indeterminate in between — so unchecking it hides the whole group at once. Click the
-panel's own heading to collapse/expand the checklist without affecting what's shown in the
-diagram.
+The checklist groups items under a heading once there's more than one group to distinguish — a `Subdomain`'s heading names its `Domain`, a `BoundedContext`'s names its `Subdomain`, and `d5-aggregate` groups by kind ("Entities" / "Value Objects"). A single group (e.g. one `Domain`, or an aggregate with no Value Objects) renders as a flat list instead — a heading naming the one thing everything already belongs to wouldn't add anything. `d5-context` has no natural sub-grouping for Aggregates, so it's always flat. Each group heading is itself a checkbox — checked when every item in the group is visible, unchecked when none are, indeterminate in between — so unchecking it hides the whole group at once. Click the panel's own heading to collapse/expand the checklist without affecting what's shown in the diagram.
 
-Unlike `attachPanZoom` (a pure post-render transform), toggling changes the actual layout,
-so it needs the parsed data — not just an SVG string, which is all `mermaid.render()` hands
-back. Parse with this package's own `parse<Type>` directly instead; the toggle helper
-performs the first render too, so that's the only step before attaching it:
+Unlike `attachPanZoom` (a pure post-render transform), toggling changes the actual layout, so it needs the parsed data — not just an SVG string, which is all `mermaid.render()` hands back. Parse with this package's own `parse<Type>` directly instead; the toggle helper performs the first render too, so that's the only step before attaching it:
 
 ```typescript
 import { D5DomainDb, parseDomain, attachDomainToggle } from 'd5-mermaid';
@@ -274,19 +258,9 @@ container.appendChild(svg);
 attachDomainToggle(svg, db, container);
 ```
 
-The other three follow the same shape: `D5SubdomainDb`/`parseSubdomain`/`attachSubdomainToggle`,
-`D5ContextDb`/`parseContext`/`attachContextToggle`, `D5AggregateDb`/`parseAggregate`/`attachAggregateToggle`.
-Each returns a handle — `{ show(id), hide(id), toggle(id), isVisible(id), getHiddenIds(), destroy() }`
-— and takes an options object: `panel` (`true`; draws the checklist), `panelTitle`
-(`"Show"`), `collapsed` (`false`; start the checklist collapsed), `initiallyHidden` (an
-iterable of ids to start unchecked), and `onChange` (called with the current visible-id set
-after every re-render — handy for calling an `attachPanZoom` instance's `.fit()` on the
-same svg, since hiding things changes the diagram's size).
+The other three follow the same shape: `D5SubdomainDb`/`parseSubdomain`/`attachSubdomainToggle`, `D5ContextDb`/`parseContext`/`attachContextToggle`, `D5AggregateDb`/`parseAggregate`/`attachAggregateToggle`. Each returns a handle — `{ show(id), hide(id), toggle(id), isVisible(id), getHiddenIds(), destroy() }` — and takes an options object: `panel` (`true`; draws the checklist), `panelTitle` (`"Show"`), `collapsed` (`false`; start the checklist collapsed), `initiallyHidden` (an iterable of ids to start unchecked), and `onChange` (called with the current visible-id set after every re-render — handy for calling an `attachPanZoom` instance's `.fit()` on the same svg, since hiding things changes the diagram's size).
 
-`attachPanZoom` and an `attach<Type>Toggle` can be pointed at the same container (see
-`examples/one.html?toggle=1`) — mark any overlay UI you add there yourself with
-`markOverlay` so `attachPanZoom`'s drag handling skips it too, the same way its own
-controls and the toggle checklist do.
+`attachPanZoom` and an `attach<Type>Toggle` can be pointed at the same container (see `examples/one.html?toggle=1`) — mark any overlay UI you add there yourself with `markOverlay` so `attachPanZoom`'s drag handling skips it too, the same way its own controls and the toggle checklist do.
 
 ## Examples
 
