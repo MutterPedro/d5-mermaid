@@ -272,6 +272,24 @@ export function render(db: D5SubdomainReadable, container: SVGSVGElement): void 
     }
   });
 
+  // A Subdomain with no visible Bounded Contexts (e.g. every one toggled off) would be an
+  // empty compound cluster. Dagre doesn't just give that no width/height (fixed earlier) —
+  // it also reserves *no layout space* for it among its siblings, since as far as its
+  // spacing logic is concerned the cluster has no content at all. Drawing it at any nonzero
+  // fallback size then overlaps whatever Dagre placed next to it, confirmed live: multiple
+  // empty Subdomains at once rendered on top of each other, and the overall viewBox came out
+  // far smaller than the boxes actually drawn into it. Giving every empty Subdomain one
+  // invisible placeholder child sized like a real Bounded Context makes Dagre lay it out and
+  // size it exactly like a real (if empty-looking) one, so the fallback size in the draw
+  // loop below never actually has to paper over a mismatch.
+  const subdomainsWithBc = new Set(boundedContexts.map((bc) => bc.subdomainId));
+  subdomains.forEach((sd) => {
+    if (!subdomainsWithBc.has(sd.id)) {
+      g.setNode(`${sd.id}__empty`, { width: BC_RX * 2, height: BC_RY * 2 });
+      g.setParent(`${sd.id}__empty`, sd.id);
+    }
+  });
+
   relationships.forEach((rel) => {
     const edgeCfg: Record<string, unknown> = { minlen: 1 };
     if (rel.label) {

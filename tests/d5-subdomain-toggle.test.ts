@@ -108,6 +108,63 @@ describe('attachSubdomainToggle (integration, real renderer)', () => {
     expect(Number.isFinite(Number(rect.getAttribute('y')))).toBe(true);
   });
 
+  // Regression test for a real bug spotted by hand right after the fix above shipped:
+  // emptying *two or more* Subdomain clusters at once rendered them stacked on top of each
+  // other, spilling out of a viewBox far smaller than the boxes actually drawn into it —
+  // "one giant overlapping blob" instead of the sane fallback boxes above. Root cause: fixing
+  // the NaN (previous test) by drawing an empty cluster at a fallback size wasn't enough —
+  // Dagre had already laid out *and spaced* every cluster assuming an empty one has zero
+  // size, so a nonzero fallback box drawn on top of that spacing overlaps its neighbor, and
+  // the graph's own overall width/height (which the viewBox is built from) didn't grow to
+  // fit it either. Fixed by giving every empty Subdomain an invisible placeholder child
+  // sized like a real Bounded Context *before* calling `dagre.layout()`, so Dagre reserves
+  // real space for it from the start instead of the draw step trying to paper over a size
+  // Dagre never accounted for.
+  it('emptying multiple Subdomains at once does not overlap them or spill past the viewBox', () => {
+    const db = new D5SubdomainDb();
+    db.addSubdomain('a', 'Subdomain A', 'core');
+    db.addBoundedContext('a1', 'A One', 'a');
+    db.addSubdomain('b', 'Subdomain B', 'supporting');
+    db.addBoundedContext('b1', 'B One', 'b');
+    db.addSubdomain('c', 'Subdomain C', 'generic');
+    db.addBoundedContext('c1', 'C One', 'c');
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachSubdomainToggle(svg, db, container, { panel: false });
+    handle.hide('a1');
+    handle.hide('b1');
+    handle.hide('c1'); // all three Subdomain clusters are now empty at once
+
+    const [, , vbWidth, vbHeight] = svg.getAttribute('viewBox')!.split(' ').map(Number);
+    const rects = Array.from(svg.querySelectorAll('.d5-subdomain > rect')).map((r) => ({
+      x: Number(r.getAttribute('x')),
+      y: Number(r.getAttribute('y')),
+      w: Number(r.getAttribute('width')),
+      h: Number(r.getAttribute('height')),
+    }));
+    expect(rects).toHaveLength(3);
+
+    // every box fully inside the viewBox
+    rects.forEach((r) => {
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.w).toBeLessThanOrEqual(vbWidth + 0.5);
+      expect(r.y + r.h).toBeLessThanOrEqual(vbHeight + 0.5);
+    });
+
+    // no two boxes overlap
+    const overlaps = (p: (typeof rects)[number], q: (typeof rects)[number]) =>
+      p.x < q.x + q.w && q.x < p.x + p.w && p.y < q.y + q.h && q.y < p.y + p.h;
+    for (let i = 0; i < rects.length; i++) {
+      for (let j = i + 1; j < rects.length; j++) {
+        expect(overlaps(rects[i], rects[j])).toBe(false);
+      }
+    }
+  });
+
   // Regression test (see the analogous d5-domain one for the full story): `dagre.layout()`
   // on an empty graph reports `-Infinity` for width/height, which the `|| 0` fallback
   // doesn't catch. d5-subdomain lays every Bounded Context out in one shared graph (unlike
