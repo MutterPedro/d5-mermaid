@@ -38,6 +38,29 @@ All notable changes to the `d5-mermaid` package are documented in this file.
   with the checklist above) hit this in `d5-domain`, `d5-subdomain`, and `d5-context` alike;
   it also turned out to be a **pre-existing** bug for any `d5-context` diagram with only
   `Language` terms and no `Aggregate`s. Fixed everywhere with one shared helper.
+- Fix: unchecking every `BoundedContext` of one `Subdomain` in `d5-subdomain` drew a stray
+  rect pinned at the SVG's origin — "a component not properly cleaned up, rendering a flat
+  rectangle". A compound cluster (a `Subdomain`) with zero children gets `x`/`y` from Dagre
+  but no `width`/`height` at all (`undefined`, not `0`); `undefined / 2` is `NaN`, which then
+  poisoned the box's position too. Falls back to a box sized like one typical `BoundedContext`
+  so the empty `Subdomain` still reads.
+- Fix: that fallback size wasn't enough on its own — emptying *two or more* `Subdomain`s at
+  once rendered them stacked on top of each other, spilling out of a `viewBox` far smaller
+  than the boxes actually drawn into it. Dagre reserves no layout space for an empty cluster
+  either, not just no size, so a nonzero fallback box drawn on top of that zero-reserved
+  spacing overlapped its neighbor. Fixed at the source: every empty `Subdomain` now gets an
+  invisible placeholder child, sized like a real `BoundedContext`, added to the graph
+  *before* `dagre.layout()` runs, so Dagre reserves real space for it from the start.
+- Fix: a direct two-way relationship between two `Subdomain`s in different `Domain`s
+  (`Rel(a, b, ...)` and `Rel(b, a, ...)`) in `d5-domain` clipped to the same two points
+  regardless of direction, so it drew as one line traced twice with both edge labels stacked
+  on the same spot. Cross-domain `Rel`s sharing a pair now bow apart via a curved control
+  point instead.
+- Fix: the `d5-domain` type legend draws at a fixed width regardless of the diagram's own
+  content width, so once every `Subdomain` is toggled off and every `Domain` shrinks to its
+  empty/fallback size, the legend could spill past the `viewBox` — seen as a stray mark and
+  clipped "Generic" label past the diagram's edge. The `viewBox` width is now sized against
+  the legend's own required width too, not just the `Domain` boxes.
 
 ## 0.4.0
 
