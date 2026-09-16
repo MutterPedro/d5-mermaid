@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { D5SubdomainDb } from '../src/d5-subdomain/db.js';
 import { attachSubdomainToggle, subdomainToggleAdapter } from '../src/d5-subdomain/toggle.js';
+import { render as renderSubdomain } from '../src/d5-subdomain/renderer.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -31,17 +32,33 @@ describe('subdomainToggleAdapter', () => {
     ]);
   });
 
-  it('hiding a bounded context drops any Rel touching it, but never a Subdomain itself', () => {
+  it('hiding a bounded context drops any Rel touching it, keeps a Subdomain that still has others', () => {
     const filtered = subdomainToggleAdapter.filter(db, new Set(['product_ctx']));
 
     expect(filtered.getSubdomains()).toEqual([
       { id: 'catalog', label: 'Product Catalog', type: 'core' },
       { id: 'ordering', label: 'Order Management', type: 'core' },
-    ]); // both subdomains always stay
+    ]); // both subdomains still have a visible bounded context
     expect(filtered.getBoundedContexts().map((bc) => bc.id).sort()).toEqual(['order_ctx', 'pricing_ctx']);
     expect(filtered.getRelationships()).toEqual([
       { source: 'order_ctx', target: 'pricing_ctx', label: 'Conformist' },
     ]);
+  });
+
+  // Regression test: hiding every Bounded Context of a Subdomain left that Subdomain's box
+  // on screen, empty. A container whose every box has been toggled off is hidden too.
+  it('hiding every bounded context of a Subdomain drops that Subdomain too', () => {
+    const filtered = subdomainToggleAdapter.filter(db, new Set(['product_ctx', 'pricing_ctx']));
+
+    expect(filtered.getSubdomains()).toEqual([{ id: 'ordering', label: 'Order Management', type: 'core' }]);
+    expect(filtered.getBoundedContexts().map((bc) => bc.id)).toEqual(['order_ctx']);
+  });
+
+  it('keeps a Subdomain authored with no Bounded Contexts — only a toggled-empty one is dropped', () => {
+    db.addSubdomain('empty', 'Empty', 'generic');
+    const filtered = subdomainToggleAdapter.filter(db, new Set(['order_ctx']));
+
+    expect(filtered.getSubdomains().map((sd) => sd.id)).toEqual(['catalog', 'empty']);
   });
 
   it('leaves everything as-is when nothing is hidden', () => {
@@ -72,6 +89,28 @@ describe('attachSubdomainToggle (integration, real renderer)', () => {
     expect(svg.querySelectorAll('.d5-rel')).toHaveLength(1);
   });
 
+  // Regression test: unchecking every Bounded Context of a Subdomain in the gallery left the
+  // Subdomain's box drawn, empty. It should go too, and come back once one is shown again.
+  it('hiding every bounded context of a Subdomain removes that Subdomain box; showing one brings it back', () => {
+    const db = buildDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachSubdomainToggle(svg, db, container, { panel: false });
+    handle.hide('product_ctx');
+    handle.hide('pricing_ctx');
+
+    expect(svg.querySelectorAll('.d5-subdomain')).toHaveLength(1);
+    expect(svg.textContent).not.toContain('Product Catalog');
+    expect(svg.textContent).toContain('Order Management');
+
+    handle.show('pricing_ctx');
+    expect(svg.querySelectorAll('.d5-subdomain')).toHaveLength(2);
+    expect(svg.textContent).toContain('Product Catalog');
+  });
+
   // Regression test for a real bug found fuzz-testing the gallery (random toggles across
   // every example — 100% reproduction on every d5-subdomain diagram): hiding every Bounded
   // Context of *one* Subdomain, while another Subdomain still has visible ones, drew a
@@ -82,16 +121,15 @@ describe('attachSubdomainToggle (integration, real renderer)', () => {
   // `NaN`, which then poisoned the box's `x`/`y` too. This is a different code path from the
   // "hide literally everything" case below: here the *graph* isn't empty (Order Context is
   // still there), only one *cluster* inside it is.
-  it('hiding every Bounded Context of one Subdomain (while another still has one) draws a sane fallback box, not NaN', () => {
-    const db = buildDb();
-    const container = document.createElement('div');
-    document.body.appendChild(container);
+  // A Subdomain emptied via the toggle is now dropped entirely (see above), so this renders a
+  // Subdomain *authored* with no Bounded Contexts directly — same empty-cluster code path.
+  it('a Subdomain with no Bounded Contexts (while another still has one) draws a sane fallback box, not NaN', () => {
+    const db = new D5SubdomainDb();
+    db.addSubdomain('catalog', 'Product Catalog', 'core'); // empty cluster
+    db.addSubdomain('ordering', 'Order Management', 'core');
+    db.addBoundedContext('order_ctx', 'Order Context', 'ordering', 'Order Squad');
     const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
-    container.appendChild(svg);
-
-    const handle = attachSubdomainToggle(svg, db, container, { panel: false });
-    handle.hide('product_ctx');
-    handle.hide('pricing_ctx'); // 'catalog' Subdomain's cluster is now empty
+    renderSubdomain(db, svg);
 
     expect(svg.outerHTML).not.toContain('NaN');
     expect(svg.outerHTML).not.toContain('Infinity');
@@ -120,23 +158,14 @@ describe('attachSubdomainToggle (integration, real renderer)', () => {
   // sized like a real Bounded Context *before* calling `dagre.layout()`, so Dagre reserves
   // real space for it from the start instead of the draw step trying to paper over a size
   // Dagre never accounted for.
-  it('emptying multiple Subdomains at once does not overlap them or spill past the viewBox', () => {
+  // (Rendered directly with authored-empty Subdomains, for the same reason as the test above.)
+  it('multiple empty Subdomains at once do not overlap or spill past the viewBox', () => {
     const db = new D5SubdomainDb();
     db.addSubdomain('a', 'Subdomain A', 'core');
-    db.addBoundedContext('a1', 'A One', 'a');
     db.addSubdomain('b', 'Subdomain B', 'supporting');
-    db.addBoundedContext('b1', 'B One', 'b');
-    db.addSubdomain('c', 'Subdomain C', 'generic');
-    db.addBoundedContext('c1', 'C One', 'c');
-    const container = document.createElement('div');
-    document.body.appendChild(container);
+    db.addSubdomain('c', 'Subdomain C', 'generic'); // all three Subdomain clusters empty
     const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
-    container.appendChild(svg);
-
-    const handle = attachSubdomainToggle(svg, db, container, { panel: false });
-    handle.hide('a1');
-    handle.hide('b1');
-    handle.hide('c1'); // all three Subdomain clusters are now empty at once
+    renderSubdomain(db, svg);
 
     const [, , vbWidth, vbHeight] = svg.getAttribute('viewBox')!.split(' ').map(Number);
     const rects = Array.from(svg.querySelectorAll('.d5-subdomain > rect')).map((r) => ({

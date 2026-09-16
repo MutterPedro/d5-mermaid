@@ -28,7 +28,8 @@ const ARROW_MARKER_SIZE = 8;
 // Vertical gap between stacked domain boxes when a diagram declares more than one
 // top-level `Domain(...)` — wide enough for a cross-domain relationship label to sit in.
 const DOMAIN_GAP = 48;
-// Fallback box size for the degenerate case of a diagram with no `Domain` block at all.
+// Fallback canvas size for the degenerate case of a diagram with no `Domain` block at all (or
+// every one hidden by the toggle). Only the space is reserved — no empty Domain box is drawn.
 const EMPTY_DOMAIN_W = 400;
 const EMPTY_DOMAIN_H = DOMAIN_PADDING * 2;
 
@@ -402,24 +403,6 @@ export function render(db: D5DomainReadable, container: SVGSVGElement): void {
     titleEl.setAttribute('fill', '#1e293b');
     titleEl.textContent = title;
     container.appendChild(titleEl);
-  }
-
-  if (!hasDomains) {
-    // Degenerate/empty diagram — no `Domain` block at all.
-    const domainGroup = document.createElementNS(SVG_NS, 'g');
-    domainGroup.setAttribute('class', 'd5-domain');
-    const domainRect = document.createElementNS(SVG_NS, 'rect');
-    domainRect.setAttribute('x', String(domainX));
-    domainRect.setAttribute('y', String(domainY0));
-    domainRect.setAttribute('width', String(EMPTY_DOMAIN_W));
-    domainRect.setAttribute('height', String(EMPTY_DOMAIN_H));
-    domainRect.setAttribute('rx', '12');
-    domainRect.setAttribute('fill', '#f8fafc');
-    domainRect.setAttribute('stroke', '#94a3b8');
-    domainRect.setAttribute('stroke-width', '2');
-    domainRect.setAttribute('stroke-dasharray', '8 4');
-    domainGroup.appendChild(domainRect);
-    container.appendChild(domainGroup);
   }
 
   // Domain boundaries + subdomains, and a global lookup of each subdomain's center (used to

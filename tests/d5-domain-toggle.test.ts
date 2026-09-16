@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { D5DomainDb } from '../src/d5-domain/db.js';
 import { attachDomainToggle, domainToggleAdapter } from '../src/d5-domain/toggle.js';
+import { render as renderDomain } from '../src/d5-domain/renderer.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -31,13 +32,13 @@ describe('domainToggleAdapter', () => {
     ]);
   });
 
-  it('hiding a subdomain drops any Rel touching it, but never a Domain itself', () => {
+  it('hiding a subdomain drops any Rel touching it, keeps a Domain that still has others', () => {
     const filtered = domainToggleAdapter.filter(db, new Set(['driver_identity']));
 
     expect(filtered.getDomains()).toEqual([
       { id: 'mobility', label: 'Mobility' },
       { id: 'delivery', label: 'Delivery' },
-    ]); // both domains always stay
+    ]); // both domains still have a visible subdomain
     expect(filtered.getSubdomains().map((s) => s.id).sort()).toEqual(['courier_dispatch', 'ride_matching']);
     // both rels touched driver_identity -> both gone
     expect(filtered.getRelationships()).toEqual([]);
@@ -50,6 +51,22 @@ describe('domainToggleAdapter', () => {
     expect(filtered.getRelationships()).toEqual([
       { source: 'ride_matching', target: 'driver_identity', label: 'uses' },
     ]);
+  });
+
+  // Regression test: hiding every Subdomain of a Domain left that Domain's box on screen,
+  // empty. A container whose every box has been toggled off is hidden along with them.
+  it('hiding every subdomain of a Domain drops that Domain too', () => {
+    const filtered = domainToggleAdapter.filter(db, new Set(['ride_matching', 'driver_identity']));
+
+    expect(filtered.getDomains()).toEqual([{ id: 'delivery', label: 'Delivery' }]);
+    expect(filtered.getSubdomains().map((s) => s.id)).toEqual(['courier_dispatch']);
+  });
+
+  it('keeps a Domain authored with no Subdomains — only a toggled-empty Domain is dropped', () => {
+    db.addDomain('empty', 'Empty');
+    const filtered = domainToggleAdapter.filter(db, new Set(['courier_dispatch']));
+
+    expect(filtered.getDomains().map((d) => d.id)).toEqual(['mobility', 'empty']);
   });
 
   it('passes direction/title through unchanged', () => {
@@ -89,6 +106,45 @@ describe('attachDomainToggle (integration, real renderer)', () => {
     expect(svg.querySelectorAll('.d5-subdomain')).toHaveLength(3);
   });
 
+  // Regression test: unchecking every Subdomain of "Uber Mobility" in the gallery's Example 8
+  // left the Uber Mobility box drawn, empty. The emptied Domain's box should go too, and
+  // come back as soon as one of its Subdomains is shown again.
+  it('hiding every subdomain of a Domain removes that Domain box; showing one brings it back', () => {
+    const db = buildTwoDomainDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachDomainToggle(svg, db, container, { panel: false });
+    handle.hide('ride_matching');
+    handle.hide('driver_identity');
+
+    const domainText = () => Array.from(svg.querySelectorAll('.d5-domain')).map((el) => el.textContent);
+    expect(svg.querySelectorAll('.d5-domain')).toHaveLength(1);
+    expect(domainText().join(' ')).not.toContain('Mobility');
+    expect(domainText().join(' ')).toContain('Delivery');
+
+    handle.show('ride_matching');
+    expect(svg.querySelectorAll('.d5-domain')).toHaveLength(2);
+    expect(domainText().join(' ')).toContain('Mobility');
+  });
+
+  it('hiding every subdomain leaves no empty Domain box at all', () => {
+    const db = buildTwoDomainDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachDomainToggle(svg, db, container, { panel: false });
+    domainToggleAdapter.items(db).forEach((item) => handle.hide(item.id));
+
+    expect(svg.querySelectorAll('.d5-domain')).toHaveLength(0);
+    expect(svg.outerHTML).not.toContain('Infinity');
+    expect(svg.outerHTML).not.toContain('NaN');
+  });
+
   // Regression test for a real bug caught hand-testing Example 8 (Uber Mobility & Delivery)
   // in the browser: hiding every Subdomain of one Domain broke the *whole* diagram, not
   // just that Domain's box. Root cause: `dagre.layout()` on a Domain's now-empty local
@@ -98,16 +154,15 @@ describe('attachDomainToggle (integration, real renderer)', () => {
   // running total, it poisoned every Domain stacked after it too. Fixed with `finiteOr0()`
   // (src/shared/shape.ts), shared by every renderer with this exact `dagre.layout()` +
   // `graph().width || 0` pattern (also found and fixed in d5-subdomain and d5-context).
-  it('hiding every Subdomain of one Domain leaves a sane empty box, not -Infinity, and does not break the other Domain', () => {
-    const db = buildTwoDomainDb();
-    const container = document.createElement('div');
-    document.body.appendChild(container);
+  // A Domain emptied via the toggle is now dropped entirely (see above), so this renders a
+  // Domain *authored* with no Subdomains — still stacked before a populated one — directly.
+  it('a Domain with no Subdomains renders a sane empty box, not -Infinity, and does not break the Domain after it', () => {
+    const db = new D5DomainDb();
+    db.addDomain('mobility', 'Mobility'); // no subdomains
+    db.addDomain('delivery', 'Delivery');
+    db.addSubdomain('courier_dispatch', 'Courier Dispatch', 'core', 'delivery');
     const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
-    container.appendChild(svg);
-
-    const handle = attachDomainToggle(svg, db, container, { panel: false });
-    handle.hide('ride_matching');
-    handle.hide('driver_identity'); // both of mobility's subdomains now hidden
+    renderDomain(db, svg);
 
     expect(svg.outerHTML).not.toContain('Infinity');
     expect(svg.querySelectorAll('.d5-domain')).toHaveLength(2);
@@ -174,7 +229,7 @@ describe('attachDomainToggle (integration, real renderer)', () => {
   // empty-fallback) Domain boxes, never from the legend's own — fixed, not diagram-size-
   // dependent — width, even though the legend always draws at that fixed width regardless of
   // how narrow the diagram itself has become.
-  it('the type legend never extends past the viewBox, even when every Domain has shrunk to its empty fallback size', () => {
+  it('the type legend never extends past the viewBox, even when every Subdomain is hidden', () => {
     const db = buildTwoDomainDb();
     const container = document.createElement('div');
     document.body.appendChild(container);

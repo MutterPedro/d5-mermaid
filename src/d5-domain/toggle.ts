@@ -3,9 +3,10 @@ import { render } from './renderer.js';
 import { attachToggle, type ToggleAdapter, type ToggleOptions, type ToggleHandle } from '../shared/toggle.js';
 
 /** Toggle unit: a `Subdomain(...)` — hides it and any Rel touching it, grouped in the
- * checklist by its owning `Domain` (once there's more than one). Domains themselves are
- * always shown — consistent with every other view toggling the individual boxes inside a
- * container, never the container(s). */
+ * checklist by its owning `Domain` (once there's more than one). Domains aren't toggle units
+ * themselves — consistent with every other view toggling the individual boxes inside a
+ * container — but a Domain whose every Subdomain is hidden is dropped along with them,
+ * rather than left behind as an empty box. A Domain *authored* with no Subdomains stays. */
 export const domainToggleAdapter: ToggleAdapter<D5DomainReadable> = {
   items: (db) => {
     const domainLabel = new Map(db.getDomains().map((d) => [d.id, d.label]));
@@ -19,12 +20,17 @@ export const domainToggleAdapter: ToggleAdapter<D5DomainReadable> = {
   filter: (db, hidden) => {
     const subdomains = db.getSubdomains().filter((sd) => !hidden.has(sd.id));
     const visibleSubdomainIds = new Set(subdomains.map((sd) => sd.id));
+    const authoredDomainIds = new Set(db.getSubdomains().map((sd) => sd.domainId));
+    const visibleDomainIds = new Set(subdomains.map((sd) => sd.domainId));
+    const domains = db
+      .getDomains()
+      .filter((d) => !authoredDomainIds.has(d.id) || visibleDomainIds.has(d.id));
     const relationships = db
       .getRelationships()
       .filter((r) => visibleSubdomainIds.has(r.source) && visibleSubdomainIds.has(r.target));
 
     return {
-      getDomains: () => db.getDomains(),
+      getDomains: () => domains,
       getSubdomains: () => subdomains,
       getRelationships: () => relationships,
       getDirection: () => db.getDirection(),
