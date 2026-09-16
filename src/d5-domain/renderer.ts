@@ -352,7 +352,36 @@ export function render(db: D5DomainReadable, container: SVGSVGElement): void {
   const maxDomainW = hasDomains ? Math.max(...domainBoxes.map((b) => b.w)) : EMPTY_DOMAIN_W;
   const contentBottom = hasDomains ? cursorY : domainY0 + EMPTY_DOMAIN_H;
 
-  const totalW = domainX + maxDomainW + DOMAIN_PADDING;
+  // The legend's own (fixed, not diagram-size-dependent) width has to be known before
+  // `totalW` below is fixed — otherwise a diagram whose domains have shrunk down to their
+  // empty/fallback size (every Subdomain toggled off, for instance) sets a viewBox too
+  // narrow for the legend, which then overflows past it. Confirmed live: exactly that, on a
+  // two-Domain diagram with everything hidden. Determining whether the "Reverse dependency"
+  // entry will be needed means checking every relationship for one now, up front — using
+  // the same per-domain graphs and domain declaration order the actual draw loops below use,
+  // just run earlier; `domainIndex` is hoisted here too since this needs it and so does the
+  // cross-domain draw loop later.
+  const domainIndex = new Map<string, number>();
+  domains.forEach((d, i) => domainIndex.set(d.id, i));
+
+  let hasBackEdge = false;
+  domainBoxes.forEach((box) => {
+    (intraByDomain.get(box.domain.id) ?? []).forEach((rel) => {
+      const srcNode = box.g.node(rel.source);
+      const tgtNode = box.g.node(rel.target);
+      if (srcNode && tgtNode && isAgainstFlow(direction, srcNode, tgtNode)) hasBackEdge = true;
+    });
+  });
+  crossDomainRels.forEach((rel) => {
+    const sourceDomain = domainOf.get(rel.source);
+    const targetDomain = domainOf.get(rel.target);
+    if (sourceDomain && targetDomain && (domainIndex.get(targetDomain) ?? 0) < (domainIndex.get(sourceDomain) ?? 0)) {
+      hasBackEdge = true;
+    }
+  });
+
+  const legendW = domainX + LEGEND_ITEMS.length * 90 + (hasBackEdge ? 170 : 0);
+  const totalW = Math.max(domainX + maxDomainW + DOMAIN_PADDING, legendW);
   const legendH = 30;
   const totalH = contentBottom + legendH + DOMAIN_PADDING;
 
@@ -475,20 +504,11 @@ export function render(db: D5DomainReadable, container: SVGSVGElement): void {
     });
   });
 
-  // Relationships as arrows
-  let hasBackEdge = false;
-
+  // Relationships as arrows. `hasBackEdge` and `domainIndex` were already computed above
+  // (needed there to size the legend before the viewBox was fixed) — reused here as-is.
   domainBoxes.forEach((box) => {
     (intraByDomain.get(box.domain.id) ?? []).forEach((rel) => {
-      const isBackEdge = drawIntraDomainRel(
-        container,
-        box.g,
-        box.graphStartX,
-        box.graphStartY,
-        rel,
-        direction,
-      );
-      if (isBackEdge) hasBackEdge = true;
+      drawIntraDomainRel(container, box.g, box.graphStartX, box.graphStartY, rel, direction);
     });
   });
 
@@ -496,8 +516,6 @@ export function render(db: D5DomainReadable, container: SVGSVGElement): void {
   // drawn once every domain's subdomains have a known global position. A cross-domain edge
   // that points at an earlier domain in the (declaration-order, top-to-bottom) stack reads
   // the same way an intra-domain back edge does — a reverse / cyclical dependency.
-  const domainIndex = new Map<string, number>();
-  domains.forEach((d, i) => domainIndex.set(d.id, i));
 
   // Cross-domain Rels between the same *pair* of Subdomains — regardless of which way each
   // one points — are grouped so a direct two-way relationship (A->B and B->A, a fairly

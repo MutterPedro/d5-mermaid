@@ -165,4 +165,31 @@ describe('attachDomainToggle (integration, real renderer)', () => {
     expect(container.querySelector('[data-d5-toggle-panel]')!.textContent).not.toContain('ACME');
     expect(container.querySelectorAll('[data-d5-toggle-panel] input[type="checkbox"]')).toHaveLength(2);
   });
+
+  // Regression test for a real bug spotted right after the previous two fixes: hiding every
+  // Subdomain in a two-Domain diagram (via a screenshot showing the exact IDDD Samples
+  // subdomain-map bug's sibling in the *domain* view) left the type legend's "Generic"
+  // swatch and label rendered past the SVG's own viewBox — visible on screen as a stray "|"
+  // and clipped text. Root cause: `totalW` was sized purely from the (now-shrunk,
+  // empty-fallback) Domain boxes, never from the legend's own — fixed, not diagram-size-
+  // dependent — width, even though the legend always draws at that fixed width regardless of
+  // how narrow the diagram itself has become.
+  it('the type legend never extends past the viewBox, even when every Domain has shrunk to its empty fallback size', () => {
+    const db = buildTwoDomainDb();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachDomainToggle(svg, db, container, { panel: false });
+    domainToggleAdapter.items(db).forEach((item) => handle.hide(item.id));
+
+    const [, , vbWidth] = svg.getAttribute('viewBox')!.split(' ').map(Number);
+    const legendEls = Array.from(svg.querySelectorAll('.d5-legend rect, .d5-legend text, .d5-legend line'));
+    expect(legendEls.length).toBeGreaterThan(0);
+    legendEls.forEach((el) => {
+      const x = Number(el.getAttribute('x') ?? el.getAttribute('x2'));
+      expect(x).toBeLessThanOrEqual(vbWidth);
+    });
+  });
 });
