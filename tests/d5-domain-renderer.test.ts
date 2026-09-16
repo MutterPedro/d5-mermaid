@@ -172,4 +172,79 @@ describe('d5-domain renderer', () => {
 
     expect(container.innerHTML).toMatchSnapshot();
   });
+
+  // Regression test for a real bug spotted by hand: "a direct cycle from 2 subdomains in
+  // different domains... the arrows overlap each other almost completely". A->B and B->A
+  // between the same pair of Subdomains clip to the same two points on the same straight
+  // line — the two edges (and their labels) drew on top of each other. Cross-domain edges
+  // sharing a pair now bow apart instead.
+  describe('a direct two-way relationship between Subdomains in different Domains', () => {
+    function buildTwoWayDb(): D5DomainDb {
+      const db = new D5DomainDb();
+      db.setTitle('Direct Cycle');
+      db.addDomain('d1', 'Domain One');
+      db.addSubdomain('a', 'Subdomain A', 'core', 'd1');
+      db.addDomain('d2', 'Domain Two');
+      db.addSubdomain('b', 'Subdomain B', 'core', 'd2');
+      db.addRelationship('a', 'b', 'calls');
+      db.addRelationship('b', 'a', 'calls back');
+      return db;
+    }
+
+    function pathPoints(d: string): { x: number; y: number }[] {
+      // "M x y Q cx cy mx my L ex ey" or "M x y L ex ey" — pull out every x/y pair in order.
+      const nums = d.match(/-?[\d.]+/g)!.map(Number);
+      const pts = [];
+      for (let i = 0; i < nums.length; i += 2) pts.push({ x: nums[i], y: nums[i + 1] });
+      return pts;
+    }
+
+    it('draws the two edges as visibly distinct curves, not one line traced twice', () => {
+      const db = buildTwoWayDb();
+      render(db, container);
+
+      const paths = Array.from(container.querySelectorAll('.d5-rel-cross path')) as SVGPathElement[];
+      expect(paths).toHaveLength(2);
+
+      const [p1, p2] = paths.map((p) => pathPoints(p.getAttribute('d')!));
+      // same endpoints (same pair, clipped to the same two boxes)...
+      expect(p1[0]).toEqual(p2[p2.length - 1]);
+      expect(p1[p1.length - 1]).toEqual(p2[0]);
+      // ...but bowed through *different* midpoints, not the same straight line.
+      const mid1 = p1[Math.floor(p1.length / 2)];
+      const mid2 = p2[Math.floor(p2.length / 2)];
+      const separation = Math.hypot(mid1.x - mid2.x, mid1.y - mid2.y);
+      expect(separation).toBeGreaterThan(20);
+    });
+
+    it("does not overlap the two edges' labels", () => {
+      const db = buildTwoWayDb();
+      render(db, container);
+
+      const rects = Array.from(container.querySelectorAll('.d5-rel-cross .d5-edge-label rect'));
+      expect(rects).toHaveLength(2);
+      const spans = rects.map((r) => {
+        const x1 = Number(r.getAttribute('x'));
+        return [x1, x1 + Number(r.getAttribute('width'))] as const;
+      });
+      const [[a1, a2], [b1, b2]] = spans;
+      const overlaps = a1 < b2 && b1 < a2;
+      expect(overlaps).toBe(false);
+    });
+
+    it('a single (one-way) cross-domain relationship is unaffected — still a plain straight line', () => {
+      const db = new D5DomainDb();
+      db.addDomain('d1', 'Domain One');
+      db.addSubdomain('a', 'Subdomain A', 'core', 'd1');
+      db.addDomain('d2', 'Domain Two');
+      db.addSubdomain('b', 'Subdomain B', 'core', 'd2');
+      db.addRelationship('a', 'b', 'calls');
+
+      render(db, container);
+
+      const paths = Array.from(container.querySelectorAll('.d5-rel-cross path')) as SVGPathElement[];
+      expect(paths).toHaveLength(1);
+      expect(pathPoints(paths[0].getAttribute('d')!)).toHaveLength(2); // "M x y L x y" only
+    });
+  });
 });

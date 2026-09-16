@@ -8,6 +8,12 @@ const BACK_EDGE_TITLE =
   'Runs against the dominant flow — likely part of a dependency cycle among these subdomains.';
 
 const REL_LABEL_MAX_WIDTH = 150;
+// Perpendicular spread (in px, at the midpoint) between cross-domain edges that connect the
+// same pair of Subdomains — e.g. a direct two-way relationship — so they bow apart instead
+// of drawing on top of each other. Sized to keep two typical-length edge-label pills from
+// touching (confirmed empirically: 30 was too tight for even short 2-3 word labels), not a
+// guarantee against arbitrarily long ones.
+const CROSS_EDGE_GAP = 64;
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -201,11 +207,15 @@ function drawRelPath(
   group.appendChild(path);
 
   if (label) {
-    // The true midpoint of the whole path, not `points[len/2]` — for a straight 2-point
-    // line that index is the *end* point, which would sit the label right on the target box.
-    const first = points[0];
-    const last = points[points.length - 1];
-    const mid = { x: (first.x + last.x) / 2, y: (first.y + last.y) / 2 };
+    // A true middle element (an odd-length array, e.g. a 3-point bowed curve) is the curve's
+    // own control point — anchor the label there so two bowed-apart edges get visibly
+    // separated labels too, not just separated lines. Otherwise (a straight 2-point line)
+    // there's no middle element to use: `points[len/2]` would be the *end* point, sitting
+    // the label right on the target box, so average the two endpoints instead.
+    const mid =
+      points.length % 2 === 1
+        ? points[Math.floor(points.length / 2)]
+        : { x: (points[0].x + points[points.length - 1].x) / 2, y: (points[0].y + points[points.length - 1].y) / 2 };
     group.appendChild(createEdgeLabel({ x: mid.x, y: mid.y, text: label, maxWidth: REL_LABEL_MAX_WIDTH }));
   }
 
@@ -489,19 +499,54 @@ export function render(db: D5DomainReadable, container: SVGSVGElement): void {
   const domainIndex = new Map<string, number>();
   domains.forEach((d, i) => domainIndex.set(d.id, i));
 
+  // Cross-domain Rels between the same *pair* of Subdomains — regardless of which way each
+  // one points — are grouped so a direct two-way relationship (A->B and B->A, a fairly
+  // natural thing between two Subdomains in different Domains) doesn't draw as one line
+  // fully overlapping itself: confirmed as a real readability problem by hand-testing. A
+  // group of one (the common case) still draws the plain straight line.
+  const crossGroups = new Map<string, Relationship[]>();
   crossDomainRels.forEach((rel) => {
-    const src = subdomainGlobal.get(rel.source);
-    const tgt = subdomainGlobal.get(rel.target);
-    if (!src || !tgt) return;
+    const key = [rel.source, rel.target].sort().join('|');
+    const list = crossGroups.get(key);
+    if (list) list.push(rel);
+    else crossGroups.set(key, [rel]);
+  });
 
-    const sourceDomain = domainOf.get(rel.source)!;
-    const targetDomain = domainOf.get(rel.target)!;
-    const isBackEdge = (domainIndex.get(targetDomain) ?? 0) < (domainIndex.get(sourceDomain) ?? 0);
-    if (isBackEdge) hasBackEdge = true;
+  crossGroups.forEach((group) => {
+    // A canonical direction (sorted ids, not each Rel's own source/target) to spread
+    // multiple edges apart by — so the spread is the same regardless of which direction any
+    // individual edge in the group happens to point.
+    const [idA, idB] = [group[0].source, group[0].target].sort() as [string, string];
+    const a = subdomainGlobal.get(idA);
+    const b = subdomainGlobal.get(idB);
+    if (!a || !b) return;
+    const dx = b.cx - a.cx;
+    const dy = b.cy - a.cy;
+    const len = Math.hypot(dx, dy) || 1;
+    const nx = -dy / len;
+    const ny = dx / len;
 
-    const start = clipToRect(src.cx, src.cy, src.w, src.h, tgt.cx, tgt.cy);
-    const end = clipToRect(tgt.cx, tgt.cy, tgt.w, tgt.h, src.cx, src.cy);
-    drawRelPath(container, [start, end], rel.label, isBackEdge, 'd5-rel-cross');
+    group.forEach((rel, i) => {
+      const src = subdomainGlobal.get(rel.source);
+      const tgt = subdomainGlobal.get(rel.target);
+      if (!src || !tgt) return;
+
+      const sourceDomain = domainOf.get(rel.source)!;
+      const targetDomain = domainOf.get(rel.target)!;
+      const isBackEdge = (domainIndex.get(targetDomain) ?? 0) < (domainIndex.get(sourceDomain) ?? 0);
+      if (isBackEdge) hasBackEdge = true;
+
+      const start = clipToRect(src.cx, src.cy, src.w, src.h, tgt.cx, tgt.cy);
+      const end = clipToRect(tgt.cx, tgt.cy, tgt.w, tgt.h, src.cx, src.cy);
+
+      if (group.length === 1) {
+        drawRelPath(container, [start, end], rel.label, isBackEdge, 'd5-rel-cross');
+      } else {
+        const offset = (i - (group.length - 1) / 2) * CROSS_EDGE_GAP;
+        const mid = { x: (start.x + end.x) / 2 + nx * offset, y: (start.y + end.y) / 2 + ny * offset };
+        drawRelPath(container, [start, mid, end], rel.label, isBackEdge, 'd5-rel-cross');
+      }
+    });
   });
 
   // Legend
