@@ -23,6 +23,16 @@ import { render as renderAggregate } from './d5-aggregate/renderer.js';
 
 export { attachPanZoom, type PanZoomOptions, type PanZoomHandle } from './shared/pan-zoom.js';
 
+export {
+  attachExport,
+  exportPng,
+  downloadPng,
+  type ExportPngOptions,
+  type DownloadPngOptions,
+  type ExportButtonOptions,
+  type ExportHandle,
+} from './shared/export-image.js';
+
 // A container can host attachPanZoom + attachDomainToggle (etc.) at once — mark any other
 // interactive overlay you add to that same container with this so attachPanZoom's drag
 // handling skips it too (see src/shared/overlay.ts for why this matters).

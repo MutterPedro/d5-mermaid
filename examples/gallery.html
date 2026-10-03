@@ -244,6 +244,7 @@
         onChange: () => panZoom?.fit(),
       });
       panZoom = mod.attachPanZoom(svg, container, { hint: 'scroll to zoom · drag to pan' });
+      mod.attachExport(svg, container);
     }
 
     async function main() {

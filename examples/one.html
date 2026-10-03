@@ -61,13 +61,19 @@
           wrap.appendChild(svg);
           window.__toggle = renderWithToggle(mod, src, svg, wrap);
           window.__svgSize = { w: svg.getBoundingClientRect().width, h: svg.getBoundingClientRect().height, vb: svg.getAttribute('viewBox') };
-          if (!isStatic) window.__panZoom = attachPanZoom(svg, wrap);
+          if (!isStatic) {
+            window.__panZoom = attachPanZoom(svg, wrap);
+            window.__export = mod.attachExport(svg, wrap);
+          }
         } else {
           const { svg } = await mermaid.render('one-svg', src);
           wrap.innerHTML = svg;
           const s = document.querySelector('svg');
           window.__svgSize = { w: s.getBoundingClientRect().width, h: s.getBoundingClientRect().height, vb: s.getAttribute('viewBox') };
-          if (!isStatic) window.__panZoom = attachPanZoom(s, wrap);
+          if (!isStatic) {
+            window.__panZoom = attachPanZoom(s, wrap);
+            window.__export = mod.attachExport(s, wrap);
+          }
         }
       } catch (e) {
         wrap.innerHTML = '<div class="err">' + (e && e.message || e) + '</div>';

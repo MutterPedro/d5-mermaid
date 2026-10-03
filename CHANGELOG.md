@@ -2,6 +2,14 @@
 
 All notable changes to the `d5-mermaid` package are documented in this file.
 
+## 0.6.0
+
+- Add `attachExport(svg, container?, options?)` — a "PNG" button (top-right of the container, clear of the pan/zoom controls and the toggle checklist) that downloads the rendered diagram as a high-resolution PNG, 4× its natural size by default so it holds up when zoomed into. Also exported without the button as `exportPng(svg, options)` (resolves with the `Blob`) and `downloadPng(svg, options)`.
+  - Always exports the whole diagram at rest — the live view's pan/zoom transform is stripped from the copy that gets rasterized — with a small margin and an opaque white background by default (`background: "transparent"` for none). What's drawn is what's exported: components unchecked in an `attach<Type>Toggle` checklist are left out too.
+  - Styles the browser resolved from the host page's CSS (fill, stroke, font, ...) are baked into the copy first, since an SVG loaded as an image can't see the page's stylesheets. The result goes through a `data:` URL rather than a `blob:` one, which Safari treats as tainting the canvas.
+  - `scale` is capped so the PNG stays within what browsers can actually encode (`maxDimension`, default 16384 px on the longest side; `maxPixels`, default 8192²) instead of failing outright on a very large diagram. Options: `scale`, `background`, `padding`, `filename` (defaults to the diagram's title, slugified), `label`, `onExport`, `onError`.
+  - `examples/gallery.html` and `examples/one.html` now show the button.
+
 ## 0.5.0
 
 - Add `attachDomainToggle`, `attachSubdomainToggle`, `attachContextToggle`, `attachAggregateToggle` — a checklist overlay that hides/shows components in an already-rendered diagram, re-laying-out the rest rather than just fading them in place. The toggle unit is the same rule in every view: the individual boxes *inside* a container, never the container itself. A `Domain`/`Subdomain` isn't a toggle unit, but once every box inside it is unchecked it's hidden along with them rather than left behind as an empty box (and comes back as soon as one is re-checked); one *authored* with no boxes at all still renders as declared.

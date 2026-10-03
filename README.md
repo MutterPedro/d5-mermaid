@@ -262,6 +262,24 @@ The other three follow the same shape: `D5SubdomainDb`/`parseSubdomain`/`attachS
 
 `attachPanZoom` and an `attach<Type>Toggle` can be pointed at the same container (see `examples/one.html?toggle=1`) — mark any overlay UI you add there yourself with `markOverlay` so `attachPanZoom`'s drag handling skips it too, the same way its own controls and the toggle checklist do.
 
+## Exporting as PNG
+
+`attachExport` adds a "PNG" button to the top-right of the diagram that downloads it as a high-resolution PNG. The SVG is vector, so the export is rasterized at 4× its natural size by default — a typical diagram comes out several thousand pixels wide, enough to zoom into without going soft. Dependency-free: it clones the SVG, bakes the styles the browser resolved from your page's CSS into the clone (an SVG loaded as an image can't see the page's stylesheets), and draws it onto a canvas.
+
+```typescript
+import { attachExport } from 'd5-mermaid';
+
+const { svg } = await mermaid.render('my-diagram', src);
+container.innerHTML = svg;
+attachExport(container.querySelector('svg'), container);
+```
+
+The export always captures the whole diagram at rest, whatever the current pan/zoom, with a small margin around it and an opaque white background. What's drawn is what's exported: components an `attach<Type>Toggle` has unchecked are left out of the PNG too. The button is marked as overlay UI, so it composes with `attachPanZoom` and the toggle checklist on the same container (it sits top-right, clear of both).
+
+`attachExport` returns a handle — `{ toBlob(options?), download(options?), destroy() }` — and takes an options object: `scale` (`4`; pixels per diagram unit), `background` (`"#ffffff"`; any CSS color or `"transparent"`), `padding` (`16`; margin in diagram units), `filename` (the diagram's title, slugified), `label` (`"PNG"`; the button text), `onExport` (called with the blob after the download starts) and `onError` (default `console.error`). `scale` is lowered automatically if the result would exceed `maxDimension` (`16384` px on the longest side) or `maxPixels` (`67108864`, i.e. 8192²) — browsers fail to encode canvases past their own limits, and some mobile ones fail well below these defaults, so lower them if you target those.
+
+To skip the button — export from your own UI, or send the PNG somewhere other than a download — use `exportPng(svg, options)` (resolves with the `Blob`) or `downloadPng(svg, options)` directly; both are exported alongside it.
+
 ## Examples
 
 `examples/` contains D5 models of seven real-world DDD codebases and techniques
