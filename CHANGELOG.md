@@ -2,6 +2,25 @@
 
 All notable changes to the `d5-mermaid` package are documented in this file.
 
+## Unreleased
+
+Implements the unreleased [D5-SPEC.md](../D5-SPEC.md) amendment to the two tactical views. Additive: a diagram that uses none of the new elements parses and renders byte-for-byte as before.
+
+- `d5-context` is no longer limited to aggregates, and shows what crosses the context's boundary.
+  - `DomainService(id, "Label")` — a stateless domain computation or decision that belongs to no single aggregate (stadium-shaped node). `Process(id, "Label")` — a long-running, stateful workflow (box with double side bars). Either can be an endpoint of a `Rel`/`Event`/`Command`/`Policy`.
+  - `Command(source, target, "Name")` — a solid blue arrow with an Event Storming command tag; the counterpart of `Event`.
+  - `Actor(id, "Label")` and a bodiless `BoundedContext(id, "Label")`, declared outside the subject's `{ ... }` block, are drawn outside the boundary, so an `Event` or `Command` to or from one visibly crosses it. The subject is the `BoundedContext` with a body; a diagram whose only `BoundedContext` has no body still gets it as the subject.
+- `d5-aggregate` shows the aggregate's shape and behaviour, not just its members.
+  - `Has(owner, part, multiplicity, as: "role")` — ownership inside the boundary. `multiplicity` is a keyword — `one` (default) / `optional` / `many` / `at_least_one` — not a string. With a `Has` or `Ref` present, the objects are laid out as a tree from the root instead of a grid, each `Has` a line with a composition diamond at the owner, labelled `1..* items`. A member no `Has` names as a part is ranked directly under the root with no line.
+  - `Ref(source, aggregate, multiplicity, as: "role")` — a reference by identity to another aggregate, a dashed arrow. The target is a bodiless `Aggregate(...)` declared outside the subject's block and is drawn outside the boundary.
+  - `Command(id, "Label")`, `Event(id, "Label")`, `Emits(command, event)` — a "Behaviour" band inside the boundary listing each command with the events it emits; events no command emits are listed on their own.
+  - `Lifecycle { State(id, "Label") … Transition(from, to, on: command) … }` — a "Lifecycle" band with a small state diagram: the first state marked initial, a state nothing leaves marked terminal, each transition labelled with the `Command` its `on:` names.
+  - A `Has`/`Ref`/`Transition` naming an undeclared id is dropped rather than drawn to nowhere.
+- Toggles follow suit. `attachContextToggle` lists `DomainService`s and `Process`es beside `Aggregate`s, grouped by kind; an `Actor` or neighbouring context is hidden once every edge it had is gone. `attachAggregateToggle` drops any `Has`/`Ref` touching a hidden member, and a referenced aggregate once nothing references it.
+  - **Changed:** `contextToggleAdapter.items()` now sets `group` on every item (`"Aggregates"`, …). The built-in checklist still renders flat when a context has only Aggregates; a custom UI reading `group` will see it where it was `undefined`.
+- `D5ContextReadable` and `D5AggregateReadable` gain getters for the above (`getDomainServices`, `getProcesses`, `getNeighbours`, `getActors`, `getCommands`; `getHas`, `getRefs`, `getNeighbours`, `getCommands`, `getEvents`, `getEmits`, `getStates`, `getTransitions`). **Changed:** a hand-written object passed where one of these interfaces is expected (a custom `ToggleAdapter.filter`, say) must now supply them.
+- `examples/dotnet-eshoponcontainers`: the Ordering context and Order aggregate now use the new elements.
+
 ## 0.6.0
 
 - Add `attachExport(svg, container?, options?)` — a "PNG" button (top-right of the container, clear of the pan/zoom controls and the toggle checklist) that downloads the rendered diagram as a high-resolution PNG, 4× its natural size by default so it holds up when zoomed into. Also exported without the button as `exportPng(svg, options)` (resolves with the `Blob`) and `downloadPng(svg, options)`.
