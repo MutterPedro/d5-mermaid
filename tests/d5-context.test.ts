@@ -176,6 +176,181 @@ describe('d5-context parser', () => {
   });
 });
 
+describe('d5-context parser — beyond aggregates', () => {
+  const SOURCE = `d5-context
+  BoundedContext(order_ctx, "Ordering", team: "Order Squad") {
+    Aggregate(order_agg, "Order", root: "Order")
+    DomainService(pricing, "Order Pricing")
+    Process(checkout, "Checkout")
+    Command(customer, order_agg, "Place Order")
+    Command(checkout, order_agg, "Confirm Order")
+    Event(order_agg, payment_ctx, "OrderPlaced")
+  }
+
+  Actor(customer, "Customer")
+  BoundedContext(payment_ctx, "Payment")
+`;
+
+  it('parses DomainService() and Process() as elements of the context', () => {
+    const db = new D5ContextDb();
+    parse(SOURCE, db);
+
+    expect(db.getDomainServices()).toEqual([{ id: 'pricing', label: 'Order Pricing' }]);
+    expect(db.getProcesses()).toEqual([{ id: 'checkout', label: 'Checkout' }]);
+  });
+
+  it('parses Command() edges', () => {
+    const db = new D5ContextDb();
+    parse(SOURCE, db);
+
+    expect(db.getCommands()).toEqual([
+      { source: 'customer', target: 'order_agg', name: 'Place Order' },
+      { source: 'checkout', target: 'order_agg', name: 'Confirm Order' },
+    ]);
+  });
+
+  it('takes the BoundedContext with a body as the subject and a bodiless one as a neighbour', () => {
+    const db = new D5ContextDb();
+    parse(SOURCE, db);
+
+    expect(db.getBoundedContext()).toEqual({ id: 'order_ctx', label: 'Ordering', team: 'Order Squad' });
+    expect(db.getNeighbours()).toEqual([{ id: 'payment_ctx', label: 'Payment' }]);
+    expect(db.getActors()).toEqual([{ id: 'customer', label: 'Customer' }]);
+  });
+
+  it('accepts a neighbour declared ahead of the subject', () => {
+    const db = new D5ContextDb();
+    parse(`d5-context
+  BoundedContext(payment_ctx, "Payment")
+  BoundedContext(order_ctx, "Ordering") {
+    Aggregate(order_agg, "Order", root: "Order")
+  }
+`, db);
+
+    expect(db.getBoundedContext()?.id).toBe('order_ctx');
+    expect(db.getNeighbours()).toEqual([{ id: 'payment_ctx', label: 'Payment' }]);
+  });
+
+  it('still takes a lone bodiless BoundedContext as the subject', () => {
+    const db = new D5ContextDb();
+    parse(`d5-context
+  BoundedContext(order_ctx, "Ordering")
+  Aggregate(order_agg, "Order", root: "Order")
+`, db);
+
+    expect(db.getBoundedContext()?.id).toBe('order_ctx');
+    expect(db.getNeighbours()).toEqual([]);
+  });
+
+  it('clears the new state', () => {
+    const db = new D5ContextDb();
+    parse(SOURCE, db);
+    db.clear();
+
+    expect(db.getDomainServices()).toEqual([]);
+    expect(db.getProcesses()).toEqual([]);
+    expect(db.getNeighbours()).toEqual([]);
+    expect(db.getActors()).toEqual([]);
+    expect(db.getCommands()).toEqual([]);
+  });
+});
+
+describe('d5-context renderer — beyond aggregates', () => {
+  let db: D5ContextDb;
+  let container: SVGSVGElement;
+
+  const rectOf = (selector: string): { x0: number; y0: number; x1: number; y1: number } => {
+    const r = container.querySelector(`${selector} rect`)!;
+    const x0 = Number(r.getAttribute('x'));
+    const y0 = Number(r.getAttribute('y'));
+    return { x0, y0, x1: x0 + Number(r.getAttribute('width')), y1: y0 + Number(r.getAttribute('height')) };
+  };
+  const within = (a: ReturnType<typeof rectOf>, b: ReturnType<typeof rectOf>): boolean =>
+    a.x0 >= b.x0 && a.x1 <= b.x1 && a.y0 >= b.y0 && a.y1 <= b.y1;
+  const apart = (a: ReturnType<typeof rectOf>, b: ReturnType<typeof rectOf>): boolean =>
+    a.x1 <= b.x0 || a.x0 >= b.x1 || a.y1 <= b.y0 || a.y0 >= b.y1;
+
+  beforeEach(() => {
+    db = new D5ContextDb();
+    container = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    document.body.appendChild(container);
+    db.setTitle('Ordering');
+    db.setBoundedContext('order_ctx', 'Ordering', 'Order Squad');
+    db.addAggregate('order_agg', 'Order', 'Order');
+    db.addDomainService('pricing', 'Order Pricing');
+    db.addProcess('checkout', 'Checkout');
+    db.addNeighbour('payment_ctx', 'Payment');
+    db.addActor('customer', 'Customer');
+    db.addTerm('Order', 'A confirmed purchase request');
+    db.addRelationship('order_agg', 'pricing', 'priced by');
+    db.addCommand('customer', 'order_agg', 'Place Order');
+    db.addEvent('order_agg', 'checkout', 'OrderPlaced');
+    db.addEvent('checkout', 'payment_ctx', 'PaymentRequested');
+  });
+
+  for (const direction of ['TB', 'LR', 'BT', 'RL']) {
+    it(`keeps services and processes inside the boundary, neighbours and actors outside it (${direction})`, () => {
+      db.setDirection(direction);
+      render(db, container);
+
+      const boundary = rectOf('.d5-bounded-context');
+      expect(within(rectOf('.d5-aggregate'), boundary)).toBe(true);
+      expect(within(rectOf('.d5-domain-service'), boundary)).toBe(true);
+      expect(within(rectOf('.d5-process'), boundary)).toBe(true);
+      expect(within(rectOf('.d5-language-note'), boundary)).toBe(true);
+      expect(apart(rectOf('.d5-neighbour-context'), boundary)).toBe(true);
+      expect(apart(rectOf('.d5-actor'), boundary)).toBe(true);
+
+      const [, , vbW, vbH] = container.getAttribute('viewBox')!.split(' ').map(Number);
+      for (const sel of ['.d5-bounded-context', '.d5-neighbour-context', '.d5-actor']) {
+        expect(within(rectOf(sel), { x0: 0, y0: 0, x1: vbW, y1: vbH })).toBe(true);
+      }
+    });
+  }
+
+  it('labels each kind of node with its type', () => {
+    render(db, container);
+
+    expect(container.querySelector('.d5-domain-service')!.textContent).toBe('Order Pricingdomain service');
+    expect(container.querySelector('.d5-process')!.textContent).toBe('Checkoutprocess');
+    expect(container.querySelector('.d5-neighbour-context')!.textContent).toBe('Paymentbounded context');
+    expect(container.querySelector('.d5-actor')!.textContent).toBe('Customeractor');
+  });
+
+  it('draws a Command as its own kind of edge, tagged with its name', () => {
+    render(db, container);
+
+    const commands = container.querySelectorAll('.d5-command');
+    expect(commands).toHaveLength(1);
+    expect(commands[0].querySelector('.d5-command-label')!.textContent).toBe('Place Order');
+    expect(commands[0].querySelector('path')!.getAttribute('marker-end')).toBe('url(#d5-command-arrowhead)');
+    expect(container.querySelector('[id="d5-command-arrowhead"]')).not.toBeNull();
+  });
+
+  it('draws an Event that leaves the context', () => {
+    render(db, container);
+
+    const labels = [...container.querySelectorAll('.d5-event-label')].map((e) => e.textContent);
+    expect(labels).toEqual(['OrderPlaced', 'PaymentRequested']);
+  });
+
+  it('leaves a context with nothing outside it laid out exactly as before', () => {
+    const plain = new D5ContextDb();
+    plain.setBoundedContext('ctx', 'Minimal Context');
+    plain.addAggregate('a1', 'Root Agg', 'Root');
+    render(plain, container);
+
+    expect(container.querySelector('[id="d5-command-arrowhead"]')).toBeNull();
+    expect(rectOf('.d5-bounded-context')).toMatchObject({ x0: 30, y0: 30 });
+  });
+
+  it('snapshot: context with a service, a process, an actor and a neighbouring context', () => {
+    render(db, container);
+
+    expect(container.innerHTML).toMatchSnapshot();
+  });
+});
+
 describe('d5-context renderer', () => {
   let db: D5ContextDb;
   let container: SVGSVGElement;
