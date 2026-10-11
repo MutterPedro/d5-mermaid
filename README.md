@@ -10,8 +10,8 @@ D5 provides four diagram types at progressive zoom levels, inspired by the C4 mo
 |---|---|---|
 | **Domain** | `d5-domain` | Strategic overview: subdomains and their relationships |
 | **Subdomain** | `d5-subdomain` | Context map: bounded contexts and DDD relationship patterns |
-| **Context** | `d5-context` | Tactical structure: aggregates, ubiquitous language, domain events, policies and read models within a bounded context |
-| **Aggregate** | `d5-aggregate` | Domain objects: entities, value objects and invariants within an aggregate |
+| **Context** | `d5-context` | Tactical structure: aggregates, domain services, processes and read models within a bounded context, the commands, events and policies between them, the actors and neighbouring contexts outside it, and its ubiquitous language |
+| **Aggregate** | `d5-aggregate` | One aggregate: its entities and value objects and who owns what, the aggregates it references by id, the commands it handles and events it emits, its lifecycle and its invariants |
 
 ## Installation
 
@@ -182,9 +182,38 @@ d5-context
 - **`Policy(source, target, "whenever … then …")`** — a reactive policy. Drawn as a dashed
   violet arrow; `source === target` for a scheduled / self-directed policy.
 
+A context is not only aggregates, and it does not live alone. Everything declared outside the subject's `{ ... }` block is drawn outside its boundary:
+
+```
+d5-context
+  title Ordering Context
+
+  BoundedContext(order_ctx, "Ordering", team: "Order Squad") {
+    Aggregate(order_agg, "Order", root: "Order")
+    DomainService(pricing, "Order Pricing")
+    Process(checkout, "Checkout")
+
+    Command(customer, order_agg, "Place Order")
+    Rel(order_agg, pricing, "priced by")
+    Event(order_agg, checkout, "OrderPlaced")
+    Event(checkout, payment_ctx, "PaymentRequested")
+    Event(payment_ctx, checkout, "PaymentReceived")
+    Command(checkout, order_agg, "Confirm Order")
+  }
+
+  Actor(customer, "Customer")
+  BoundedContext(payment_ctx, "Payment")
+```
+
+- **`DomainService(id, "Label")`** — a stateless domain computation or decision that belongs to no single aggregate. Drawn as a stadium-shaped node.
+- **`Process(id, "Label")`** — a long-running, stateful workflow (process manager / saga). Drawn as a box with double side bars.
+- **`Command(source, target, "CommandName")`** — a request: `source` asks `target` to do it. Drawn as a solid blue arrow with an Event Storming command tag.
+- **`Actor(id, "Label")`** — a person or role issuing commands. Declared outside the subject's block.
+- **`BoundedContext(id, "Label")`** with no body, outside the subject's block — a neighbouring context. An `Event` or `Command` to or from it crosses the boundary line.
+
 ### d5-aggregate
 
-Internal composition of a single aggregate. No `Rel` — containment implies direct references.
+A single aggregate. No `Rel` — containment implies direct references.
 
 ```
 d5-aggregate
@@ -207,6 +236,45 @@ d5-aggregate
 The optional **`Invariants { Invariant("rule") | Invariant("Subject", "rule") }`** block
 lists the business rules the aggregate keeps true on every transaction. It renders as a
 band inside the aggregate boundary, attributed to the root.
+
+That is membership. To show the aggregate's shape and behaviour as well, state them:
+
+```
+d5-aggregate
+  title Order Aggregate
+
+  Aggregate(order_agg, "Order", root: "Order") {
+    Entity(order, "Order")
+    Entity(order_item, "Order Item")
+    ValueObject(money, "Money")
+    ValueObject(order_status, "Order Status")
+
+    Has(order, order_item, at_least_one, as: "items")
+    Has(order, order_status, as: "status")
+    Has(order_item, money, as: "unit price")
+    Ref(order_item, product_agg, as: "product")
+
+    Command(place, "Place Order")
+    Command(pay, "Pay Order")
+    Event(placed, "OrderPlaced")
+    Event(paid, "OrderPaid")
+    Emits(place, placed)
+    Emits(pay, paid)
+
+    Lifecycle {
+      State(s_placed, "Placed")
+      State(s_paid, "Paid")
+      Transition(s_placed, s_paid, on: pay)
+    }
+  }
+
+  Aggregate(product_agg, "Product", root: "Product")
+```
+
+- **`Has(owner, part, multiplicity, as: "role")`** — ownership inside the boundary. `multiplicity` is `one` (default), `optional`, `many` or `at_least_one`; `as:` is optional. Once a diagram has a `Has` or a `Ref`, the objects are laid out as a tree from the root instead of a grid, each `Has` a line with a composition diamond at the owner. A member no `Has` names as a part sits directly under the root, with no line.
+- **`Ref(source, aggregate, multiplicity, as: "role")`** — a reference by identity to another aggregate, drawn as a dashed arrow. The target is a bodiless `Aggregate(...)` declared outside the subject's block, and is drawn outside the boundary.
+- **`Command(id, "Label")`**, **`Event(id, "Label")`**, **`Emits(command, event)`** — the commands the aggregate handles and the events handling each one emits, listed in a band inside the boundary. (In `d5-context` `Command` and `Event` take a source and a target instead: there they are edges.)
+- **`Lifecycle { State(id, "Label") … Transition(from, to, on: command) … }`** — the aggregate's states as a small state diagram in its own band. The first state is the initial one, a state nothing leaves is terminal, and `on:` names the `Command` that causes the transition.
 
 ## Pan & Zoom
 
@@ -240,10 +308,10 @@ Each diagram type has an `attach<Type>Toggle` that draws a checklist over the di
 |---|---|---|
 | `d5-domain` | `Subdomain` | any `Rel` touching it; its `Domain` too, once every one of that Domain's Subdomains is hidden |
 | `d5-subdomain` | `BoundedContext` | any `Rel` touching it; its `Subdomain` too, once every one of that Subdomain's Bounded Contexts is hidden |
-| `d5-context` | `Aggregate` | any `Rel`/`Event`/`Policy` touching it (`Term`s, `ReadModel`s, and the `BoundedContext` are always shown — that boundary never goes empty) |
-| `d5-aggregate` | `Entity` / `ValueObject` | nothing else — this view has no `Rel`; `Invariants` are free text and always shown as declared |
+| `d5-context` | `Aggregate` / `DomainService` / `Process` | any `Rel`/`Event`/`Command`/`Policy` touching it; an `Actor` or neighbouring context too, once every edge it had is gone (`Term`s, `ReadModel`s, and the subject `BoundedContext` are always shown — that boundary never goes empty) |
+| `d5-aggregate` | `Entity` / `ValueObject` | any `Has`/`Ref` touching it; a referenced aggregate too, once every `Ref` to it is gone (`Invariants`, the `Lifecycle` and the commands/events are always shown as declared) |
 
-The checklist groups items under a heading once there's more than one group to distinguish — a `Subdomain`'s heading names its `Domain`, a `BoundedContext`'s names its `Subdomain`, and `d5-aggregate` groups by kind ("Entities" / "Value Objects"). A single group (e.g. one `Domain`, or an aggregate with no Value Objects) renders as a flat list instead — a heading naming the one thing everything already belongs to wouldn't add anything. `d5-context` has no natural sub-grouping for Aggregates, so it's always flat. Each group heading is itself a checkbox — checked when every item in the group is visible, unchecked when none are, indeterminate in between — so unchecking it hides the whole group at once. Click the panel's own heading to collapse/expand the checklist without affecting what's shown in the diagram.
+The checklist groups items under a heading once there's more than one group to distinguish — a `Subdomain`'s heading names its `Domain`, a `BoundedContext`'s names its `Subdomain`, and `d5-aggregate` groups by kind ("Entities" / "Value Objects"). A single group (e.g. one `Domain`, or an aggregate with no Value Objects) renders as a flat list instead — a heading naming the one thing everything already belongs to wouldn't add anything. `d5-context` groups by kind too ("Aggregates" / "Domain Services" / "Processes"), so a context with only Aggregates stays flat. Each group heading is itself a checkbox — checked when every item in the group is visible, unchecked when none are, indeterminate in between — so unchecking it hides the whole group at once. Click the panel's own heading to collapse/expand the checklist without affecting what's shown in the diagram.
 
 Unlike `attachPanZoom` (a pure post-render transform), toggling changes the actual layout, so it needs the parsed data — not just an SVG string, which is all `mermaid.render()` hands back. Parse with this package's own `parse<Type>` directly instead; the toggle helper performs the first render too, so that's the only step before attaching it:
 

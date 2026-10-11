@@ -27,8 +27,39 @@ describe('contextToggleAdapter', () => {
 
   it('lists each Aggregate as a toggle item — not ReadModels or Terms', () => {
     expect(contextToggleAdapter.items(db)).toEqual([
-      { id: 'order_agg', label: 'Order' },
-      { id: 'buyer_agg', label: 'Buyer' },
+      { id: 'order_agg', label: 'Order', group: 'Aggregates' },
+      { id: 'buyer_agg', label: 'Buyer', group: 'Aggregates' },
+    ]);
+  });
+
+  it('lists DomainServices and Processes too, each under its own group — not neighbours or actors', () => {
+    db.addDomainService('pricing', 'Order Pricing');
+    db.addProcess('checkout', 'Checkout');
+    db.addNeighbour('payment_ctx', 'Payment');
+    db.addActor('customer', 'Customer');
+
+    expect(contextToggleAdapter.items(db).slice(2)).toEqual([
+      { id: 'pricing', label: 'Order Pricing', group: 'Domain Services' },
+      { id: 'checkout', label: 'Checkout', group: 'Processes' },
+    ]);
+  });
+
+  it('hides an actor or neighbour once every edge it had is gone, keeps one that still has an edge', () => {
+    db.addNeighbour('payment_ctx', 'Payment');
+    db.addNeighbour('catalog_ctx', 'Catalog');
+    db.addNeighbour('unused_ctx', 'Declared, never connected');
+    db.addActor('customer', 'Customer');
+    db.addCommand('customer', 'order_agg', 'Place Order');
+    db.addEvent('order_agg', 'payment_ctx', 'OrderPlaced');
+    db.addEvent('buyer_agg', 'catalog_ctx', 'BuyerVerified');
+
+    const filtered = contextToggleAdapter.filter(db, new Set(['order_agg']));
+
+    expect(filtered.getCommands()).toEqual([]);
+    expect(filtered.getActors()).toEqual([]); // its only edge went with order_agg
+    expect(filtered.getNeighbours()).toEqual([
+      { id: 'catalog_ctx', label: 'Catalog' }, // still fed by the visible buyer_agg
+      { id: 'unused_ctx', label: 'Declared, never connected' }, // had no edge to lose
     ]);
   });
 

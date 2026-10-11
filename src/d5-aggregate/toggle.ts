@@ -2,9 +2,10 @@ import type { D5AggregateReadable } from './db.js';
 import { render } from './renderer.js';
 import { attachToggle, type ToggleAdapter, type ToggleOptions, type ToggleHandle } from '../shared/toggle.js';
 
-/** Toggle unit: an `Entity` or `ValueObject` member, grouped in the checklist by kind.
- * `d5-aggregate` has no `Rel` (containment implies direct reference), so there are no edges
- * to drop — just the member's own box. `Invariants` are free text and always shown as
+/** Toggle unit: an `Entity` or `ValueObject` member, grouped in the checklist by kind —
+ * hides its box and any `Has`/`Ref` touching it. A referenced aggregate outside the boundary
+ * isn't a toggle unit, but once every `Ref` to it is gone it is hidden too. `Invariants`,
+ * the `Lifecycle` and the commands/events are the aggregate's own and always shown as
  * declared; they aren't re-derived per member. */
 export const aggregateToggleAdapter: ToggleAdapter<D5AggregateReadable> = {
   items: (db) => [
@@ -16,12 +17,28 @@ export const aggregateToggleAdapter: ToggleAdapter<D5AggregateReadable> = {
     const entities = db.getEntities().filter((e) => !hidden.has(e.id));
     const valueObjects = db.getValueObjects().filter((v) => !hidden.has(v.id));
 
+    const present = new Set([...entities, ...valueObjects].map((m) => m.id));
+    const has = db.getHas().filter((h) => present.has(h.owner) && present.has(h.part));
+    const refs = db.getRefs().filter((r) => present.has(r.source));
+    const referenced = (all: { target: string }[]): Set<string> => new Set(all.map((r) => r.target));
+    const before = referenced(db.getRefs());
+    const after = referenced(refs);
+    const neighbours = db.getNeighbours().filter((n) => !before.has(n.id) || after.has(n.id));
+
     return {
       getTitle: () => db.getTitle(),
       getAggregate: () => db.getAggregate(),
       getEntities: () => entities,
       getValueObjects: () => valueObjects,
       getInvariants: () => db.getInvariants(),
+      getHas: () => has,
+      getRefs: () => refs,
+      getNeighbours: () => neighbours,
+      getCommands: () => db.getCommands(),
+      getEvents: () => db.getEvents(),
+      getEmits: () => db.getEmits(),
+      getStates: () => db.getStates(),
+      getTransitions: () => db.getTransitions(),
     };
   },
 };

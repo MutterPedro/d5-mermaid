@@ -3,6 +3,8 @@ import dagre from '@dagrejs/dagre';
 import { createEdgeLabel, edgeLabelSize } from '../shared/edge-label.js';
 import { measureText, wrapText, lineHeight, type FontSpec } from '../shared/text.js';
 import { finiteOr0 } from '../shared/shape.js';
+import { generateCurvePath } from '../shared/curve.js';
+import { innerBounds, stretchAxis, type Rect } from '../shared/boundary.js';
 
 const REL_LABEL_MAX_WIDTH = 150;
 
@@ -13,6 +15,11 @@ const AGGREGATE_MAX_WIDTH = 340;
 const AGGREGATE_MIN_HEIGHT = 76;
 const AGGREGATE_FIELD_HEIGHT = 20;
 const READMODEL_HEIGHT = 74;
+const SIMPLE_NODE_MIN_WIDTH = 150;
+const SIMPLE_NODE_HEIGHT = 58;
+// Dagre compound-cluster id for the subject context (only used when something sits outside it)
+const BC_CLUSTER = '__d5_bounded_context';
+const NOTE_NODE = '__d5_language_note';
 
 const GRID_GAP = 60; // Slightly larger for better graph breathing room
 
@@ -34,8 +41,33 @@ const NOTE_DEF_FONT: FontSpec = { size: 11 };
 const EVENT_STROKE = '#d97706'; // amber-600 — the Event Storming event colour
 const POLICY_STROKE = '#7c3aed'; // violet-600 — the Event Storming policy colour
 const POLICY_MAX_W = 172;
+const COMMAND_STROKE = '#2563eb'; // blue-600 — the Event Storming command colour
 
-function addArrowMarker(svg: SVGSVGElement): void {
+type SimpleNodeKind = 'domain-service' | 'process' | 'neighbour' | 'actor';
+
+const SIMPLE_NODE_STYLE: Record<
+  SimpleNodeKind,
+  { className: string; type: string; stroke: string; fill: string; text: string }
+> = {
+  'domain-service': {
+    className: 'd5-domain-service',
+    type: 'domain service',
+    stroke: '#0d9488',
+    fill: 'white',
+    text: '#0f766e',
+  },
+  process: { className: 'd5-process', type: 'process', stroke: '#4f46e5', fill: 'white', text: '#4338ca' },
+  neighbour: {
+    className: 'd5-neighbour-context',
+    type: 'bounded context',
+    stroke: '#94a3b8',
+    fill: '#f8fafc',
+    text: '#64748b',
+  },
+  actor: { className: 'd5-actor', type: 'actor', stroke: '#ca8a04', fill: '#fef9c3', text: '#854d0e' },
+};
+
+function addArrowMarker(svg: SVGSVGElement, withCommand: boolean): void {
   let defs = svg.querySelector('defs');
   if (!defs) {
     defs = document.createElementNS(SVG_NS, 'defs');
@@ -45,6 +77,7 @@ function addArrowMarker(svg: SVGSVGElement): void {
     ['d5-arrowhead', '#64748b'],
     ['d5-event-arrowhead', EVENT_STROKE],
     ['d5-policy-arrowhead', POLICY_STROKE],
+    ...(withCommand ? ([['d5-command-arrowhead', COMMAND_STROKE]] as const) : []),
   ] as const) {
     const marker = document.createElementNS(SVG_NS, 'marker');
     marker.setAttribute('id', id);
@@ -93,6 +126,38 @@ function eventRibbon(cx: number, cy: number, name: string): SVGGElement {
   t.textContent = name;
   g.appendChild(t);
   return g;
+}
+
+/** Event Storming command "sticky": a blue tag carrying the command name. */
+function commandTag(cx: number, cy: number, name: string): SVGGElement {
+  const g = document.createElementNS(SVG_NS, 'g');
+  g.setAttribute('class', 'd5-command-label');
+  const { w } = commandTagSize(name);
+  const h = 18;
+  const rect = document.createElementNS(SVG_NS, 'rect');
+  rect.setAttribute('x', String(cx - w / 2));
+  rect.setAttribute('y', String(cy - h / 2));
+  rect.setAttribute('width', String(w));
+  rect.setAttribute('height', String(h));
+  rect.setAttribute('rx', '2');
+  rect.setAttribute('fill', '#dbeafe');
+  rect.setAttribute('stroke', COMMAND_STROKE);
+  rect.setAttribute('stroke-width', '1');
+  g.appendChild(rect);
+  const t = document.createElementNS(SVG_NS, 'text');
+  t.setAttribute('x', String(cx));
+  t.setAttribute('y', String(cy + 3.5));
+  t.setAttribute('text-anchor', 'middle');
+  t.setAttribute('font-size', '10');
+  t.setAttribute('font-weight', '600');
+  t.setAttribute('fill', '#1e40af');
+  t.textContent = name;
+  g.appendChild(t);
+  return g;
+}
+
+function commandTagSize(name: string): { w: number; h: number } {
+  return { w: Math.ceil(measureText(name, { size: 10, weight: 600 }) + 16), h: 20 };
 }
 
 function eventRibbonSize(name: string): { w: number; h: number } {
@@ -147,28 +212,81 @@ function policyTag(cx: number, cy: number, rule: string): SVGGElement {
   return g;
 }
 
-// Generate an SVG path segment curving smoothly through an array of points provided by Dagre
-function generateCurvePath(points: { x: number; y: number }[]): string {
-  if (!points || points.length === 0) return '';
-  if (points.length === 1) return `M ${points[0].x} ${points[0].y}`;
-  if (points.length === 2) return `M ${points[0].x} ${points[0].y} L ${points[1].x} ${points[1].y}`;
+function simpleNodeWidth(label: string): number {
+  return Math.round(
+    Math.min(
+      AGGREGATE_MAX_WIDTH,
+      Math.max(SIMPLE_NODE_MIN_WIDTH, measureText(label, { size: 13, weight: 600 }) + 44),
+    ),
+  );
+}
 
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const p1 = points[i];
-    const p2 = points[i + 1];
-    // Quadratic midpoint smoothing
-    const midX = (p1.x + p2.x) / 2;
-    const midY = (p1.y + p2.y) / 2;
-    d += ` Q ${p1.x} ${p1.y} ${midX} ${midY}`;
+/** The single-box nodes: a label over an italic type line, told apart by outline. */
+function simpleNode(
+  kind: SimpleNodeKind,
+  label: string,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+): SVGGElement {
+  const style = SIMPLE_NODE_STYLE[kind];
+  const cx = x + w / 2;
+  const group = document.createElementNS(SVG_NS, 'g');
+  group.setAttribute('class', style.className);
+
+  const rect = document.createElementNS(SVG_NS, 'rect');
+  rect.setAttribute('x', String(x));
+  rect.setAttribute('y', String(y));
+  rect.setAttribute('width', String(w));
+  rect.setAttribute('height', String(h));
+  // a domain service is a stadium, the rest are boxes
+  rect.setAttribute('rx', String(kind === 'domain-service' ? h / 2 : kind === 'neighbour' ? 10 : 4));
+  rect.setAttribute('fill', style.fill);
+  rect.setAttribute('stroke', style.stroke);
+  rect.setAttribute('stroke-width', kind === 'actor' ? '1.5' : '2');
+  if (kind === 'neighbour') rect.setAttribute('stroke-dasharray', '6 4');
+  group.appendChild(rect);
+
+  if (kind === 'process') {
+    // the flowchart "predefined process" side bars
+    for (const bx of [x + 8, x + w - 8]) {
+      const bar = document.createElementNS(SVG_NS, 'line');
+      bar.setAttribute('x1', String(bx));
+      bar.setAttribute('y1', String(y));
+      bar.setAttribute('x2', String(bx));
+      bar.setAttribute('y2', String(y + h));
+      bar.setAttribute('stroke', style.stroke);
+      bar.setAttribute('stroke-width', '1.5');
+      group.appendChild(bar);
+    }
   }
-  const last = points[points.length - 1];
-  d += ` L ${last.x} ${last.y}`;
-  return d;
+
+  const labelText = document.createElementNS(SVG_NS, 'text');
+  labelText.setAttribute('x', String(cx));
+  labelText.setAttribute('y', String(y + 25));
+  labelText.setAttribute('text-anchor', 'middle');
+  labelText.setAttribute('font-size', '13');
+  labelText.setAttribute('font-weight', 'bold');
+  labelText.setAttribute('fill', '#1e293b');
+  labelText.textContent = label;
+  group.appendChild(labelText);
+
+  const typeText = document.createElementNS(SVG_NS, 'text');
+  typeText.setAttribute('x', String(cx));
+  typeText.setAttribute('y', String(y + 42));
+  typeText.setAttribute('text-anchor', 'middle');
+  typeText.setAttribute('font-size', '10');
+  typeText.setAttribute('font-style', 'italic');
+  typeText.setAttribute('fill', style.text);
+  typeText.textContent = style.type;
+  group.appendChild(typeText);
+
+  return group;
 }
 
 export function render(db: D5ContextReadable, container: SVGSVGElement): void {
-  addArrowMarker(container);
+  addArrowMarker(container, db.getCommands().length > 0);
 
   const title = db.getTitle();
   const bc = db.getBoundedContext();
@@ -178,11 +296,51 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   const events = db.getEvents();
   const policies = db.getPolicies();
   const readModels = db.getReadModels();
+  const commands = db.getCommands();
+
+  // Everything inside the boundary, and what sits outside it (neighbouring contexts, actors).
+  const simpleInner = [
+    ...db.getDomainServices().map((n) => ({ ...n, kind: 'domain-service' as const })),
+    ...db.getProcesses().map((n) => ({ ...n, kind: 'process' as const })),
+  ];
+  const simpleOuter = [
+    ...db.getNeighbours().map((n) => ({ ...n, kind: 'neighbour' as const })),
+    ...db.getActors().map((n) => ({ ...n, kind: 'actor' as const })),
+  ];
+  const innerIds = new Set([...aggregates, ...readModels, ...simpleInner].map((n) => n.id));
+  // A compound graph keeps the outside nodes out of the context's box; with nothing outside
+  // there is no box to keep clear of and the plain graph is laid out as it always was.
+  const compound = simpleOuter.length > 0 && innerIds.size > 0;
+
+  const hasTerms = terms.length > 0;
+
+  // Wrap every term so the sidebar height is real, not guessed.
+  const termBlocks = terms.map((t) => ({
+    nameLines: wrapText(`${t.term}`, NOTE_TEXT_W, NOTE_TERM_FONT),
+    defLines: wrapText(t.definition, NOTE_TEXT_W, NOTE_DEF_FONT),
+  }));
+  let noteH = 0;
+  if (hasTerms) {
+    noteH = NOTE_HEADER_H + NOTE_PAD;
+    for (const b of termBlocks) {
+      noteH +=
+        b.nameLines.length * lineHeight(NOTE_TERM_FONT.size) +
+        2 +
+        b.defLines.length * lineHeight(NOTE_DEF_FONT.size) +
+        NOTE_TERM_GAP;
+    }
+    noteH += NOTE_PAD - NOTE_TERM_GAP;
+  }
+
+  // With nodes outside the box the sidebar can't simply be appended to the inner layout's
+  // right — edges to whatever sits on that side would run across it. It goes into the
+  // layout as a node of the context instead, so edges are routed around it.
+  const noteInGraph = compound && hasTerms;
 
   // Create Dagre Layout. Aggregate flow is author-controlled via `direction` (default TB).
   // multigraph: several `Event`s (and a `Rel`) may connect the same pair of aggregates.
   const direction = db.getDirection();
-  const g = new dagre.graphlib.Graph({ multigraph: true });
+  const g = new dagre.graphlib.Graph({ multigraph: true, compound });
   g.setGraph({
     rankdir: direction,
     nodesep: GRID_GAP,
@@ -218,6 +376,19 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     g.setNode(rm.id, { width: w, height: READMODEL_HEIGHT });
   });
 
+  [...simpleInner, ...simpleOuter].forEach((n) => {
+    g.setNode(n.id, { width: simpleNodeWidth(n.label), height: SIMPLE_NODE_HEIGHT });
+  });
+
+  if (compound) {
+    g.setNode(BC_CLUSTER, {});
+    innerIds.forEach((id) => g.setParent(id, BC_CLUSTER));
+    if (noteInGraph) {
+      g.setNode(NOTE_NODE, { width: NOTE_WIDTH, height: noteH });
+      g.setParent(NOTE_NODE, BC_CLUSTER);
+    }
+  }
+
   relationships.forEach((rel) => {
     const edgeCfg: Record<string, unknown> = { minlen: 1 };
     if (rel.label) {
@@ -241,6 +412,12 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     g.setEdge(p.source, p.target, { minlen: 1, width: w, height: h, labelpos: 'c' }, `pol${i}`);
   });
 
+  // Commands too — the same pair may exchange several.
+  commands.forEach((c, i) => {
+    const { w, h } = commandTagSize(c.name);
+    g.setEdge(c.source, c.target, { minlen: 1, width: w, height: h, labelpos: 'c' }, `cmd${i}`);
+  });
+
   // Calculate coordinates
   dagre.layout(g);
 
@@ -248,39 +425,34 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   let graphW = finiteOr0(g.graph().width);
   let graphH = finiteOr0(g.graph().height);
 
-  const hasTerms = terms.length > 0;
-
-  // Wrap every term so the sidebar height is real, not guessed.
-  const termBlocks = terms.map((t) => ({
-    nameLines: wrapText(`${t.term}`, NOTE_TEXT_W, NOTE_TERM_FONT),
-    defLines: wrapText(t.definition, NOTE_TEXT_W, NOTE_DEF_FONT),
-  }));
-  let noteH = 0;
-  if (hasTerms) {
-    noteH = NOTE_HEADER_H + NOTE_PAD;
-    for (const b of termBlocks) {
-      noteH +=
-        b.nameLines.length * lineHeight(NOTE_TERM_FONT.size) +
-        2 +
-        b.defLines.length * lineHeight(NOTE_DEF_FONT.size) +
-        NOTE_TERM_GAP;
-    }
-    noteH += NOTE_PAD - NOTE_TERM_GAP;
+  // The part of the layout the context's box wraps: all of it, unless something sits outside.
+  let inner: Rect = { x0: 0, y0: 0, x1: graphW, y1: graphH };
+  if (compound) {
+    inner = innerBounds(g, new Set([...innerIds, NOTE_NODE])) ?? inner;
+  } else if (simpleOuter.length > 0) {
+    // nothing inside to wrap: an empty box below the outside nodes
+    inner = { x0: 0, y0: graphH + GRID_GAP, x1: 0, y1: graphH + GRID_GAP };
   }
+  const innerW = inner.x1 - inner.x0;
+  const innerH = inner.y1 - inner.y0;
 
-  const innerGridW = graphW + (hasTerms ? (graphW > 0 ? GRID_GAP : 0) + NOTE_WIDTH : 0);
-  const innerGridH = Math.max(graphH, noteH);
+  const noteSpace = hasTerms && !noteInGraph ? (innerW > 0 ? GRID_GAP : 0) + NOTE_WIDTH : 0;
+  const innerGridW = innerW + noteSpace;
+  const innerGridH = noteInGraph ? innerH : Math.max(innerH, noteH);
   // Centre the aggregate grid against the sidebar when the sidebar is the taller side.
-  const gridYOffset = Math.max(0, (innerGridH - graphH) / 2);
+  const gridYOffset = Math.max(0, (innerGridH - innerH) / 2);
 
-  let bcX = MARGIN;
-  const bcY = MARGIN + (title ? TITLE_HEIGHT : 0);
+  const originY = MARGIN + (title ? TITLE_HEIGHT : 0);
+  let bcX = MARGIN + inner.x0;
+  const bcY = originY + inner.y0;
   let bcW = innerGridW + BC_PADDING * 2;
-  if (!bc && !hasTerms && aggregates.length === 0) bcW = 400; // fallback
+  if (!bc && !hasTerms && innerIds.size === 0) bcW = 400; // fallback
   const bcH = (bc ? BC_HEADER : 0) + innerGridH + BC_PADDING * 2;
 
-  const totalW = bcX + bcW + MARGIN;
-  const totalH = bcY + bcH + MARGIN;
+  const totalW = Math.max(bcX + bcW, MARGIN + graphW + BC_PADDING * 2 + noteSpace) + MARGIN;
+  const totalH =
+    Math.max(bcY + bcH, originY + graphH + (bc ? BC_HEADER : 0) + BC_PADDING * 2 + (innerGridH - innerH)) +
+    MARGIN;
 
   container.setAttribute('viewBox', `0 0 ${totalW} ${totalH}`);
   container.setAttribute('height', String(totalH));
@@ -342,12 +514,25 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
 
   const graphStartX = bcX + BC_PADDING;
   const graphStartY = bcY + (bc ? BC_HEADER : 0) + BC_PADDING;
-  const aggAreaY = graphStartY + gridYOffset;
+
+  // Layout → SVG coordinates: the box's header, padding and sidebar are opened up around
+  // the inner rect, pushing anything outside the context away from it.
+  const X = stretchAxis(inner.x0, inner.x1, MARGIN, MARGIN + BC_PADDING, BC_PADDING + noteSpace);
+  const Y = stretchAxis(
+    inner.y0,
+    inner.y1,
+    originY,
+    originY + (bc ? BC_HEADER : 0) + BC_PADDING + gridYOffset,
+    BC_PADDING + (innerGridH - innerH - gridYOffset),
+  );
 
   // Draw the Ubiquitous Language sidebar
   if (hasTerms) {
-    const noteX = graphStartX + (graphW > 0 ? graphW + GRID_GAP : 0);
-    const noteY = graphStartY;
+    const noteNode = noteInGraph ? g.node(NOTE_NODE) : undefined;
+    const noteX = noteNode
+      ? X(noteNode.x) - NOTE_WIDTH / 2
+      : graphStartX + (innerW > 0 ? innerW + GRID_GAP : 0);
+    const noteY = noteNode ? Y(noteNode.y) - noteH / 2 : graphStartY;
 
     const noteGroup = document.createElementNS(SVG_NS, 'g');
     noteGroup.setAttribute('class', 'd5-language-note');
@@ -423,8 +608,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     // Node bounds. Dagre x/y represent the center.
     const w = node.width;
     const h = node.height;
-    const x = graphStartX + node.x - w / 2;
-    const y = aggAreaY + node.y - h / 2;
+    const x = X(node.x) - w / 2;
+    const y = Y(node.y) - h / 2;
     const cx = x + w / 2;
 
     const group = document.createElementNS(SVG_NS, 'g');
@@ -522,8 +707,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     if (!node) return;
     const w = node.width;
     const h = node.height;
-    const x = graphStartX + node.x - w / 2;
-    const y = aggAreaY + node.y - h / 2;
+    const x = X(node.x) - w / 2;
+    const y = Y(node.y) - h / 2;
     const cx = x + w / 2;
 
     const group = document.createElementNS(SVG_NS, 'g');
@@ -593,6 +778,15 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     container.appendChild(group);
   });
 
+  // Draw domain services, processes, and the neighbours / actors outside the boundary.
+  [...simpleInner, ...simpleOuter].forEach((n) => {
+    const node = g.node(n.id);
+    if (!node) return;
+    const w = node.width;
+    const h = node.height;
+    container.appendChild(simpleNode(n.kind, n.label, X(node.x) - w / 2, Y(node.y) - h / 2, w, h));
+  });
+
   // Draw Relationships using Dagre's beautifully computed edge points
   relationships.forEach((rel) => {
     const edge = g.edge(rel.source, rel.target);
@@ -600,8 +794,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
 
     // Shift points to relative coordinate space
     const shiftedPoints = edge.points.map((p: { x: number; y: number }) => ({
-      x: graphStartX + p.x,
-      y: aggAreaY + p.y
+      x: X(p.x),
+      y: Y(p.y)
     }));
 
     const group = document.createElementNS(SVG_NS, 'g');
@@ -621,8 +815,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
       let lx: number;
       let ly: number;
       if (typeof edge.x === 'number' && typeof edge.y === 'number') {
-        lx = graphStartX + edge.x;
-        ly = aggAreaY + edge.y;
+        lx = X(edge.x);
+        ly = Y(edge.y);
       } else {
         const mid = shiftedPoints[Math.floor(shiftedPoints.length / 2)];
         lx = mid.x;
@@ -642,8 +836,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     if (!edge || !edge.points || edge.points.length === 0) return;
 
     const shiftedPoints = edge.points.map((p: { x: number; y: number }) => ({
-      x: graphStartX + p.x,
-      y: aggAreaY + p.y,
+      x: X(p.x),
+      y: Y(p.y),
     }));
 
     const group = document.createElementNS(SVG_NS, 'g');
@@ -664,8 +858,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     let lx: number;
     let ly: number;
     if (typeof edge.x === 'number' && typeof edge.y === 'number') {
-      lx = graphStartX + edge.x;
-      ly = aggAreaY + edge.y;
+      lx = X(edge.x);
+      ly = Y(edge.y);
     } else {
       const mid = shiftedPoints[Math.floor(shiftedPoints.length / 2)];
       lx = mid.x;
@@ -682,8 +876,8 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     if (!edge || !edge.points || edge.points.length === 0) return;
 
     const shiftedPoints = edge.points.map((pt: { x: number; y: number }) => ({
-      x: graphStartX + pt.x,
-      y: aggAreaY + pt.y,
+      x: X(pt.x),
+      y: Y(pt.y),
     }));
 
     const group = document.createElementNS(SVG_NS, 'g');
@@ -704,14 +898,53 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
     let lx: number;
     let ly: number;
     if (typeof edge.x === 'number' && typeof edge.y === 'number') {
-      lx = graphStartX + edge.x;
-      ly = aggAreaY + edge.y;
+      lx = X(edge.x);
+      ly = Y(edge.y);
     } else {
       const mid = shiftedPoints[Math.floor(shiftedPoints.length / 2)];
       lx = mid.x;
       ly = mid.y;
     }
     group.appendChild(policyTag(lx, ly, p.rule));
+
+    container.appendChild(group);
+  });
+
+  // Draw commands — solid blue arrows carrying an Event Storming command tag.
+  commands.forEach((c, i) => {
+    const edge = g.edge(c.source, c.target, `cmd${i}`);
+    if (!edge || !edge.points || edge.points.length === 0) return;
+
+    const shiftedPoints = edge.points.map((pt: { x: number; y: number }) => ({
+      x: X(pt.x),
+      y: Y(pt.y),
+    }));
+
+    const group = document.createElementNS(SVG_NS, 'g');
+    group.setAttribute('class', 'd5-command');
+    const titleEl = document.createElementNS(SVG_NS, 'title');
+    titleEl.textContent = `${c.name} — issued by ${c.source}, handled by ${c.target}`;
+    group.appendChild(titleEl);
+
+    const path = document.createElementNS(SVG_NS, 'path');
+    path.setAttribute('d', generateCurvePath(shiftedPoints));
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', COMMAND_STROKE);
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('marker-end', 'url(#d5-command-arrowhead)');
+    group.appendChild(path);
+
+    let lx: number;
+    let ly: number;
+    if (typeof edge.x === 'number' && typeof edge.y === 'number') {
+      lx = X(edge.x);
+      ly = Y(edge.y);
+    } else {
+      const mid = shiftedPoints[Math.floor(shiftedPoints.length / 2)];
+      lx = mid.x;
+      ly = mid.y;
+    }
+    group.appendChild(commandTag(lx, ly, c.name));
 
     container.appendChild(group);
   });

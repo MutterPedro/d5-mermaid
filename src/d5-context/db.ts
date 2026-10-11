@@ -21,6 +21,30 @@ export interface ReadModel {
   label: string;
 }
 
+/** A stateless domain computation or decision that belongs to no single aggregate. */
+export interface DomainService {
+  id: string;
+  label: string;
+}
+
+/** A long-running, stateful workflow (process manager / saga) coordinating aggregates. */
+export interface Process {
+  id: string;
+  label: string;
+}
+
+/** Another bounded context this one exchanges messages with — drawn outside the boundary. */
+export interface Neighbour {
+  id: string;
+  label: string;
+}
+
+/** A person or role issuing commands to this context — drawn outside the boundary. */
+export interface Actor {
+  id: string;
+  label: string;
+}
+
 export interface Term {
   term: string;
   definition: string;
@@ -50,6 +74,13 @@ export interface Policy {
   rule: string;
 }
 
+/** A command: `source` (an actor, neighbour, process, ...) asks `target` to do `name`. */
+export interface Command {
+  source: string;
+  target: string;
+  name: string;
+}
+
 /**
  * The subset of `D5ContextDb` the renderer actually reads. Kept separate from the class so
  * a filtered, read-only view (e.g. `attachContextToggle`'s hidden-aggregate facade) can
@@ -65,6 +96,11 @@ export interface D5ContextReadable {
   getEvents(): DomainEvent[];
   getPolicies(): Policy[];
   getReadModels(): ReadModel[];
+  getDomainServices(): DomainService[];
+  getProcesses(): Process[];
+  getNeighbours(): Neighbour[];
+  getActors(): Actor[];
+  getCommands(): Command[];
   getDirection(): Direction;
 }
 
@@ -76,6 +112,11 @@ export class D5ContextDb implements D5ContextReadable {
   private relationships: Relationship[] = [];
   private events: DomainEvent[] = [];
   private policies: Policy[] = [];
+  private domainServices: DomainService[] = [];
+  private processes: Process[] = [];
+  private neighbours: Neighbour[] = [];
+  private actors: Actor[] = [];
+  private commands: Command[] = [];
   private direction: Direction = DEFAULT_DIRECTION;
   private title: string | undefined;
   private accTitle: string | undefined;
@@ -155,6 +196,46 @@ export class D5ContextDb implements D5ContextReadable {
     return this.policies;
   }
 
+  addDomainService(id: string, label: string): void {
+    this.domainServices.push({ id, label });
+  }
+
+  getDomainServices(): DomainService[] {
+    return this.domainServices;
+  }
+
+  addProcess(id: string, label: string): void {
+    this.processes.push({ id, label });
+  }
+
+  getProcesses(): Process[] {
+    return this.processes;
+  }
+
+  addNeighbour(id: string, label: string): void {
+    this.neighbours.push({ id, label });
+  }
+
+  getNeighbours(): Neighbour[] {
+    return this.neighbours;
+  }
+
+  addActor(id: string, label: string): void {
+    this.actors.push({ id, label });
+  }
+
+  getActors(): Actor[] {
+    return this.actors;
+  }
+
+  addCommand(source: string, target: string, name: string): void {
+    this.commands.push({ source, target, name });
+  }
+
+  getCommands(): Command[] {
+    return this.commands;
+  }
+
   clear(): void {
     this.boundedContext = undefined;
     this.aggregates = [];
@@ -163,6 +244,11 @@ export class D5ContextDb implements D5ContextReadable {
     this.relationships = [];
     this.events = [];
     this.policies = [];
+    this.domainServices = [];
+    this.processes = [];
+    this.neighbours = [];
+    this.actors = [];
+    this.commands = [];
     this.direction = DEFAULT_DIRECTION;
     this.title = undefined;
     this.accTitle = undefined;

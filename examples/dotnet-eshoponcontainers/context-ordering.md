@@ -2,7 +2,8 @@
 
 Source: [dotnet-architecture/eShopOnContainers](https://github.com/dotnet-architecture/eShopOnContainers),
 `Ordering.Domain`. Two aggregates — **Order** and **Buyer** — plus the CQRS query side.
-The ordering process is driven by domain events and reactive policies between them.
+The ordering process is driven by domain events and reactive policies between them, and by
+the integration events it exchanges with the Basket, Catalog and Payment contexts.
 
 ```d5
 d5-context
@@ -33,5 +34,21 @@ d5-context
 
     Policy(order_agg, buyer_agg, "when an order is started, verify (or register) the buyer and the selected payment method")
     Policy(order_agg, order_agg, "when stock is confirmed for every order item, advance the order to StockConfirmed and request payment")
+
+    Process(grace_period, "Grace Period Manager")
+
+    Command(customer, order_agg, "Cancel Order")
+    Command(grace_period, order_agg, "Set Awaiting Validation")
+
+    Event(basket_ctx, order_agg, "UserCheckoutAccepted")
+    Event(order_agg, catalog_ctx, "OrderStatusChangedToAwaitingValidation")
+    Event(catalog_ctx, order_agg, "OrderStockConfirmed")
+    Event(order_agg, payment_ctx, "OrderStatusChangedToStockConfirmed")
+    Event(payment_ctx, order_agg, "OrderPaymentSucceeded")
   }
+
+  Actor(customer, "Customer")
+  BoundedContext(basket_ctx, "Basket")
+  BoundedContext(catalog_ctx, "Catalog")
+  BoundedContext(payment_ctx, "Payment")
 ```

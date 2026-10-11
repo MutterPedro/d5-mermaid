@@ -29,5 +29,10 @@ d5-context
 
     Policy(card_agg, card_agg, "when a billing cycle is closed, reset the withdrawal count and start the next cycle")
     Policy(card_agg, withdrawals_view, "on each CardWithdrawn event, append the amount to that card's withdrawals list (eventually consistent, via Kafka)")
+
+    Command(cardholder, card_agg, "Withdraw")
+    Command(cardholder, card_agg, "Repay")
   }
+
+  Actor(cardholder, "Cardholder")
 ```

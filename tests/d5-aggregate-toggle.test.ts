@@ -45,6 +45,64 @@ describe('aggregateToggleAdapter', () => {
   });
 });
 
+describe('aggregateToggleAdapter — Has / Ref', () => {
+  function buildGraphDb(): D5AggregateDb {
+    const db = buildDb();
+    db.addValueObject('product_id', 'Product ID');
+    db.addHas('order', 'order_item', 'at_least_one', 'items');
+    db.addHas('order_item', 'money', 'one', 'price');
+    db.addHas('order_item', 'product_id');
+    db.addNeighbour('product_agg', 'Product', 'Product');
+    db.addNeighbour('buyer_agg', 'Buyer', 'Buyer');
+    db.addRef('product_id', 'product_agg');
+    db.addRef('order', 'buyer_agg');
+    db.addCommand('place', 'Place Order');
+    db.addState('s_placed', 'Placed');
+    return db;
+  }
+
+  it('hiding a member drops the Has edges on either side of it', () => {
+    const filtered = aggregateToggleAdapter.filter(buildGraphDb(), new Set(['order_item']));
+
+    expect(filtered.getHas()).toEqual([]);
+  });
+
+  it('hiding the member holding a Ref drops it, and the aggregate nothing references any more', () => {
+    const filtered = aggregateToggleAdapter.filter(buildGraphDb(), new Set(['product_id']));
+
+    expect(filtered.getRefs()).toEqual([
+      { source: 'order', target: 'buyer_agg', multiplicity: 'one', role: undefined },
+    ]);
+    expect(filtered.getNeighbours().map((n) => n.id)).toEqual(['buyer_agg']);
+    expect(filtered.getHas()).toHaveLength(2);
+  });
+
+  it('leaves the commands and lifecycle as declared', () => {
+    const db = buildGraphDb();
+    const filtered = aggregateToggleAdapter.filter(db, new Set(['order_item']));
+
+    expect(filtered.getCommands()).toEqual(db.getCommands());
+    expect(filtered.getStates()).toEqual(db.getStates());
+  });
+
+  it('re-renders without the hidden member, its edges, or the stranded aggregate', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+    container.appendChild(svg);
+
+    const handle = attachAggregateToggle(svg, buildGraphDb(), container, { panel: false });
+    expect(svg.querySelectorAll('.d5-has')).toHaveLength(3);
+    expect(svg.querySelectorAll('.d5-aggregate-ref')).toHaveLength(2);
+
+    handle.hide('product_id');
+
+    expect(svg.querySelectorAll('.d5-has')).toHaveLength(2);
+    expect(svg.querySelectorAll('.d5-aggregate-ref')).toHaveLength(1);
+    expect(svg.textContent).not.toContain('Product ID');
+  });
+});
+
 describe('attachAggregateToggle (integration, real renderer)', () => {
   it('hiding a member removes its box and re-lays-out the grid', () => {
     const db = buildDb();

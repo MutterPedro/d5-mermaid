@@ -2,6 +2,31 @@
 
 All notable changes to the `d5-mermaid` package are documented in this file.
 
+## Unreleased
+
+Implements the unreleased [D5-SPEC.md](../D5-SPEC.md) amendment to the two tactical views. Additive: a diagram that uses none of the new elements parses and renders byte-for-byte as before.
+
+- `d5-context` is no longer limited to aggregates, and shows what crosses the context's boundary.
+  - `DomainService(id, "Label")` — a stateless domain computation or decision that belongs to no single aggregate (stadium-shaped node). `Process(id, "Label")` — a long-running, stateful workflow (box with double side bars). Either can be an endpoint of a `Rel`/`Event`/`Command`/`Policy`.
+  - `Command(source, target, "Name")` — a solid blue arrow with an Event Storming command tag; the counterpart of `Event`.
+  - `Actor(id, "Label")` and a bodiless `BoundedContext(id, "Label")`, declared outside the subject's `{ ... }` block, are drawn outside the boundary, so an `Event` or `Command` to or from one visibly crosses it. The subject is the `BoundedContext` with a body; a diagram whose only `BoundedContext` has no body still gets it as the subject.
+- `d5-aggregate` shows the aggregate's shape and behaviour, not just its members.
+  - `Has(owner, part, multiplicity, as: "role")` — ownership inside the boundary. `multiplicity` is a keyword — `one` (default) / `optional` / `many` / `at_least_one` — not a string. With a `Has` or `Ref` present, the objects are laid out as a tree from the root instead of a grid, each `Has` a line with a composition diamond at the owner, labelled `1..* items`. A member no `Has` names as a part is ranked directly under the root with no line.
+  - `Ref(source, aggregate, multiplicity, as: "role")` — a reference by identity to another aggregate, a dashed arrow. The target is a bodiless `Aggregate(...)` declared outside the subject's block and is drawn outside the boundary.
+  - `Command(id, "Label")`, `Event(id, "Label")`, `Emits(command, event)` — a "Behaviour" band inside the boundary listing each command with the events it emits; events no command emits are listed on their own.
+  - `Lifecycle { State(id, "Label") … Transition(from, to, on: command) … }` — a "Lifecycle" band with a small state diagram: the first state marked initial, a state nothing leaves marked terminal, each transition labelled with the `Command` its `on:` names.
+  - A `Has`/`Ref`/`Transition` naming an undeclared id is dropped rather than drawn to nowhere.
+- Toggles follow suit. `attachContextToggle` lists `DomainService`s and `Process`es beside `Aggregate`s, grouped by kind; an `Actor` or neighbouring context is hidden once every edge it had is gone. `attachAggregateToggle` drops any `Has`/`Ref` touching a hidden member, and a referenced aggregate once nothing references it.
+  - **Changed:** `contextToggleAdapter.items()` now sets `group` on every item (`"Aggregates"`, …). The built-in checklist still renders flat when a context has only Aggregates; a custom UI reading `group` will see it where it was `undefined`.
+- `D5ContextReadable` and `D5AggregateReadable` gain getters for the above (`getDomainServices`, `getProcesses`, `getNeighbours`, `getActors`, `getCommands`; `getHas`, `getRefs`, `getNeighbours`, `getCommands`, `getEvents`, `getEmits`, `getStates`, `getTransitions`). **Changed:** a hand-written object passed where one of these interfaces is expected (a custom `ToggleAdapter.filter`, say) must now supply them.
+- Layout: a referenced aggregate is ranked above the member that references it, so it lands beside (or above) the boundary and the `Ref` line never runs down through the Behaviour / Lifecycle / Invariants bands. In `d5-context`, once anything sits outside the boundary the Language sidebar is laid out as a node of the context rather than appended to its right, so an edge to an outside node is routed around it instead of across it. (A context with nothing outside keeps the sidebar where it was.)
+- Examples: nine models now use the new elements — eShop (Ordering context, Order aggregate), dddsample (Booking context with its Routing Service, Cargo aggregate), library (Lending context, Patron and Book aggregates) and all-things-cqrs (Credit Card context and aggregate).
+- `examples/gallery.html` is navigable:
+  - A sticky sidebar lists every example, marks the one being read as the page scrolls, and dots the ones that use the newest elements.
+  - Filter by view (Domain / Subdomain / Context / Aggregate), by element used (`Has`, `Lifecycle`, `Command`, … — read off each diagram's parsed db, so a tag can't drift from its source), and by free-text search over titles, notes and D5 source. Each card shows its elements as tags; clicking one filters by it. Filters live in the query string, so a filtered view can be linked.
+  - <kbd>/</kbd> focuses search, <kbd>j</kbd> / <kbd>k</kbd> step through the visible diagrams, each card has a permalink, an "Expand" toggle and an "Open alone" link to `one.html`.
+  - Diagrams render as they approach the viewport instead of all forty up front, the checklist starts collapsed, and the wheel scrolls the page unless ctrl/⌘ is held — previously a pointer resting on a diagram zoomed it instead of scrolling.
+
 ## 0.6.0
 
 - Add `attachExport(svg, container?, options?)` — a "PNG" button (top-right of the container, clear of the pan/zoom controls and the toggle checklist) that downloads the rendered diagram as a high-resolution PNG, 4× its natural size by default so it holds up when zoomed into. Also exported without the button as `exportPng(svg, options)` (resolves with the `Blob`) and `downloadPng(svg, options)`.
