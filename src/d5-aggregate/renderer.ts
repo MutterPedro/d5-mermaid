@@ -918,7 +918,10 @@ function renderGraph(
     return { minlen: 1, width: w, height: h, labelpos: 'c' };
   };
   has.forEach((h, i) => g.setEdge(h.owner, h.part, labelled(edgeLabel(h)), `has${i}`));
-  refs.forEach((r, i) => g.setEdge(r.source, r.target, labelled(edgeLabel(r)), `ref${i}`));
+  // Laid out target → source: the referenced aggregate is ranked above the member holding
+  // the reference, so it lands beside (or above) the box and the line to it never has to
+  // run down through the bands at the bottom of the boundary.
+  refs.forEach((r, i) => g.setEdge(r.target, r.source, labelled(edgeLabel(r)), `ref${i}`));
 
   // A member nothing is said to own still sits inside the boundary, so it is the root's by
   // containment: rank it under the root, without drawing a line the author didn't state.
@@ -1020,9 +1023,11 @@ function renderGraph(
     text: string,
     tooltip: string,
     style: (path: SVGPathElement) => void,
+    reversed = false,
   ): void => {
-    const edge = g.edge(from, to, name);
+    const edge = reversed ? g.edge(to, from, name) : g.edge(from, to, name);
     if (!edge || !edge.points || edge.points.length === 0) return;
+    const points: { x: number; y: number }[] = reversed ? [...edge.points].reverse() : edge.points;
 
     const group = document.createElementNS(SVG_NS, 'g');
     group.setAttribute('class', className);
@@ -1033,9 +1038,7 @@ function renderGraph(
     const path = document.createElementNS(SVG_NS, 'path');
     path.setAttribute(
       'd',
-      generateCurvePath(
-        edge.points.map((p: { x: number; y: number }) => ({ x: X(p.x), y: Y(p.y) })),
-      ),
+      generateCurvePath(points.map((p) => ({ x: X(p.x), y: Y(p.y) }))),
     );
     path.setAttribute('fill', 'none');
     path.setAttribute('stroke-width', '1.5');
@@ -1067,6 +1070,7 @@ function renderGraph(
         path.setAttribute('stroke-dasharray', '5 4');
         path.setAttribute('marker-end', 'url(#d5-ref-arrowhead)');
       },
+      true,
     );
   });
 

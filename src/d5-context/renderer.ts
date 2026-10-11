@@ -19,6 +19,7 @@ const SIMPLE_NODE_MIN_WIDTH = 150;
 const SIMPLE_NODE_HEIGHT = 58;
 // Dagre compound-cluster id for the subject context (only used when something sits outside it)
 const BC_CLUSTER = '__d5_bounded_context';
+const NOTE_NODE = '__d5_language_note';
 
 const GRID_GAP = 60; // Slightly larger for better graph breathing room
 
@@ -311,6 +312,31 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   // there is no box to keep clear of and the plain graph is laid out as it always was.
   const compound = simpleOuter.length > 0 && innerIds.size > 0;
 
+  const hasTerms = terms.length > 0;
+
+  // Wrap every term so the sidebar height is real, not guessed.
+  const termBlocks = terms.map((t) => ({
+    nameLines: wrapText(`${t.term}`, NOTE_TEXT_W, NOTE_TERM_FONT),
+    defLines: wrapText(t.definition, NOTE_TEXT_W, NOTE_DEF_FONT),
+  }));
+  let noteH = 0;
+  if (hasTerms) {
+    noteH = NOTE_HEADER_H + NOTE_PAD;
+    for (const b of termBlocks) {
+      noteH +=
+        b.nameLines.length * lineHeight(NOTE_TERM_FONT.size) +
+        2 +
+        b.defLines.length * lineHeight(NOTE_DEF_FONT.size) +
+        NOTE_TERM_GAP;
+    }
+    noteH += NOTE_PAD - NOTE_TERM_GAP;
+  }
+
+  // With nodes outside the box the sidebar can't simply be appended to the inner layout's
+  // right — edges to whatever sits on that side would run across it. It goes into the
+  // layout as a node of the context instead, so edges are routed around it.
+  const noteInGraph = compound && hasTerms;
+
   // Create Dagre Layout. Aggregate flow is author-controlled via `direction` (default TB).
   // multigraph: several `Event`s (and a `Rel`) may connect the same pair of aggregates.
   const direction = db.getDirection();
@@ -357,6 +383,10 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   if (compound) {
     g.setNode(BC_CLUSTER, {});
     innerIds.forEach((id) => g.setParent(id, BC_CLUSTER));
+    if (noteInGraph) {
+      g.setNode(NOTE_NODE, { width: NOTE_WIDTH, height: noteH });
+      g.setParent(NOTE_NODE, BC_CLUSTER);
+    }
   }
 
   relationships.forEach((rel) => {
@@ -398,7 +428,7 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   // The part of the layout the context's box wraps: all of it, unless something sits outside.
   let inner: Rect = { x0: 0, y0: 0, x1: graphW, y1: graphH };
   if (compound) {
-    inner = innerBounds(g, innerIds) ?? inner;
+    inner = innerBounds(g, new Set([...innerIds, NOTE_NODE])) ?? inner;
   } else if (simpleOuter.length > 0) {
     // nothing inside to wrap: an empty box below the outside nodes
     inner = { x0: 0, y0: graphH + GRID_GAP, x1: 0, y1: graphH + GRID_GAP };
@@ -406,29 +436,9 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
   const innerW = inner.x1 - inner.x0;
   const innerH = inner.y1 - inner.y0;
 
-  const hasTerms = terms.length > 0;
-
-  // Wrap every term so the sidebar height is real, not guessed.
-  const termBlocks = terms.map((t) => ({
-    nameLines: wrapText(`${t.term}`, NOTE_TEXT_W, NOTE_TERM_FONT),
-    defLines: wrapText(t.definition, NOTE_TEXT_W, NOTE_DEF_FONT),
-  }));
-  let noteH = 0;
-  if (hasTerms) {
-    noteH = NOTE_HEADER_H + NOTE_PAD;
-    for (const b of termBlocks) {
-      noteH +=
-        b.nameLines.length * lineHeight(NOTE_TERM_FONT.size) +
-        2 +
-        b.defLines.length * lineHeight(NOTE_DEF_FONT.size) +
-        NOTE_TERM_GAP;
-    }
-    noteH += NOTE_PAD - NOTE_TERM_GAP;
-  }
-
-  const noteSpace = hasTerms ? (innerW > 0 ? GRID_GAP : 0) + NOTE_WIDTH : 0;
+  const noteSpace = hasTerms && !noteInGraph ? (innerW > 0 ? GRID_GAP : 0) + NOTE_WIDTH : 0;
   const innerGridW = innerW + noteSpace;
-  const innerGridH = Math.max(innerH, noteH);
+  const innerGridH = noteInGraph ? innerH : Math.max(innerH, noteH);
   // Centre the aggregate grid against the sidebar when the sidebar is the taller side.
   const gridYOffset = Math.max(0, (innerGridH - innerH) / 2);
 
@@ -518,8 +528,11 @@ export function render(db: D5ContextReadable, container: SVGSVGElement): void {
 
   // Draw the Ubiquitous Language sidebar
   if (hasTerms) {
-    const noteX = graphStartX + (innerW > 0 ? innerW + GRID_GAP : 0);
-    const noteY = graphStartY;
+    const noteNode = noteInGraph ? g.node(NOTE_NODE) : undefined;
+    const noteX = noteNode
+      ? X(noteNode.x) - NOTE_WIDTH / 2
+      : graphStartX + (innerW > 0 ? innerW + GRID_GAP : 0);
+    const noteY = noteNode ? Y(noteNode.y) - noteH / 2 : graphStartY;
 
     const noteGroup = document.createElementNS(SVG_NS, 'g');
     noteGroup.setAttribute('class', 'd5-language-note');
