@@ -2,9 +2,9 @@
 
 All notable changes to the `d5-mermaid` package are documented in this file.
 
-## Unreleased
+## 0.6.0
 
-Implements the unreleased [D5-SPEC.md](../D5-SPEC.md) amendment to the two tactical views. Additive: a diagram that uses none of the new elements parses and renders byte-for-byte as before.
+Implements [D5-SPEC.md](../D5-SPEC.md) v0.5.0 — the amendment to the two tactical views. Additive: a diagram that uses none of the new elements parses and renders byte-for-byte as before.
 
 - `d5-context` is no longer limited to aggregates, and shows what crosses the context's boundary.
   - `DomainService(id, "Label")` — a stateless domain computation or decision that belongs to no single aggregate (stadium-shaped node). `Process(id, "Label")` — a long-running, stateful workflow (box with double side bars). Either can be an endpoint of a `Rel`/`Event`/`Command`/`Policy`.
@@ -26,9 +26,6 @@ Implements the unreleased [D5-SPEC.md](../D5-SPEC.md) amendment to the two tacti
   - Filter by view (Domain / Subdomain / Context / Aggregate), by element used (`Has`, `Lifecycle`, `Command`, … — read off each diagram's parsed db, so a tag can't drift from its source), and by free-text search over titles, notes and D5 source. Each card shows its elements as tags; clicking one filters by it. Filters live in the query string, so a filtered view can be linked.
   - <kbd>/</kbd> focuses search, <kbd>j</kbd> / <kbd>k</kbd> step through the visible diagrams, each card has a permalink, an "Expand" toggle and an "Open alone" link to `one.html`.
   - Diagrams render as they approach the viewport instead of all forty up front, the checklist starts collapsed, and the wheel scrolls the page unless ctrl/⌘ is held — previously a pointer resting on a diagram zoomed it instead of scrolling.
-
-## 0.6.0
-
 - Add `attachExport(svg, container?, options?)` — a "PNG" button (top-right of the container, clear of the pan/zoom controls and the toggle checklist) that downloads the rendered diagram as a high-resolution PNG, 4× its natural size by default so it holds up when zoomed into. Also exported without the button as `exportPng(svg, options)` (resolves with the `Blob`) and `downloadPng(svg, options)`.
   - Always exports the whole diagram at rest — the live view's pan/zoom transform is stripped from the copy that gets rasterized — with a small margin and an opaque white background by default (`background: "transparent"` for none). What's drawn is what's exported: components unchecked in an `attach<Type>Toggle` checklist are left out too.
   - Styles the browser resolved from the host page's CSS (fill, stroke, font, ...) are baked into the copy first, since an SVG loaded as an image can't see the page's stylesheets. The result goes through a `data:` URL rather than a `blob:` one, which Safari treats as tainting the canvas.
