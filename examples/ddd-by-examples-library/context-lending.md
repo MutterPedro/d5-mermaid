@@ -41,5 +41,12 @@ d5-context
 
     Policy(book_agg, patron_agg, "when a book is checked out, complete the patron's open-ended hold on it")
     Policy(daily_sheet, book_agg, "each day: expire any closed-ended hold on the sheet not yet checked out")
+
+    Command(library_patron, patron_agg, "Place On Hold")
+    Command(library_patron, patron_agg, "Check Out")
+    Event(catalogue_ctx, book_agg, "BookInstanceAddedToCatalogue")
   }
+
+  Actor(library_patron, "Library Patron")
+  BoundedContext(catalogue_ctx, "Catalogue")
 ```

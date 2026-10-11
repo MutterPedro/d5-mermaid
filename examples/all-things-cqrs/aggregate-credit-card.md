@@ -18,6 +18,29 @@ d5-aggregate
     ValueObject(billing_cycle, "Billing Cycle")
     ValueObject(amount, "Amount")
 
+    Has(credit_card, card_id, as: "identity")
+    Has(credit_card, assigned_limit, optional)
+    Has(credit_card, used_limit)
+    Has(credit_card, available_limit, as: "derived")
+    Has(credit_card, billing_cycle, as: "current")
+    Has(credit_card, withdrawal, many, as: "this cycle")
+    Has(withdrawal, amount)
+
+    Command(assign_limit, "Assign Limit")
+    Command(withdraw, "Withdraw")
+    Command(repay, "Repay")
+    Command(close_cycle, "Close Cycle")
+
+    Event(limit_assigned, "LimitAssigned")
+    Event(card_withdrawn, "CardWithdrawn")
+    Event(card_repaid, "CardRepaid")
+    Event(cycle_closed, "CycleClosed")
+
+    Emits(assign_limit, limit_assigned)
+    Emits(withdraw, card_withdrawn)
+    Emits(repay, card_repaid)
+    Emits(close_cycle, cycle_closed)
+
     Invariants {
       Invariant("The credit limit is assigned exactly once — a second assignment is rejected")
       Invariant("A withdrawal is permitted only while its amount is within the available limit (assigned limit − used limit)")

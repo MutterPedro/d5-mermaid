@@ -17,6 +17,33 @@ d5-aggregate
     ValueObject(hold_duration, "Hold Duration")
     ValueObject(overdue_checkouts, "Overdue Checkouts")
 
+    Has(patron, patron_id, as: "identity")
+    Has(patron, patron_type, as: "regular or researcher")
+    Has(patron, patron_holds)
+    Has(patron_holds, hold, many)
+    Has(hold, hold_duration)
+    Has(patron, overdue_checkouts)
+
+    Ref(hold, book_agg, as: "book")
+    Ref(hold, branch_agg, as: "at branch")
+    Ref(overdue_checkouts, branch_agg, many, as: "counted per branch")
+
+    Command(place_on_hold, "Place On Hold")
+    Command(cancel_hold, "Cancel Hold")
+    Command(check_out, "Check Out")
+
+    Event(placed_on_hold, "BookPlacedOnHold")
+    Event(max_holds_reached, "MaximumNumberOfHoldsReached")
+    Event(hold_failed, "BookHoldFailed")
+    Event(hold_cancelled, "BookHoldCanceled")
+    Event(checked_out, "BookCheckedOut")
+
+    Emits(place_on_hold, placed_on_hold)
+    Emits(place_on_hold, max_holds_reached)
+    Emits(place_on_hold, hold_failed)
+    Emits(cancel_hold, hold_cancelled)
+    Emits(check_out, checked_out)
+
     Invariants {
       Invariant("A regular patron holds at most 5 books at any moment; a researcher patron has no hold limit")
       Invariant("Only a researcher patron may place a hold on a restricted book — a regular patron is always rejected")
@@ -25,4 +52,7 @@ d5-aggregate
       Invariant("Hold", "A hold can be cancelled only while it is active — never once it has been completed or has expired")
     }
   }
+
+  Aggregate(book_agg, "Book", root: "Book")
+  Aggregate(branch_agg, "Library Branch", root: "Library Branch")
 ```

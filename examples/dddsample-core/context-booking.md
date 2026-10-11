@@ -41,5 +41,16 @@ d5-context
 
     Policy(handling_event_agg, cargo_agg, "when a handling event is registered, recalculate the cargo's delivery")
     Policy(cargo_agg, cargo_agg, "when the route specification changes, re-check routing status and flag if misrouted")
+
+    DomainService(routing_service, "Routing Service")
+
+    Command(booking_clerk, cargo_agg, "Book New Cargo")
+    Command(booking_clerk, routing_service, "Request Possible Routes")
+    Command(booking_clerk, cargo_agg, "Assign Cargo To Route")
+    Command(routing_service, pathfinder_ctx, "Find Shortest Path")
+    Rel(routing_service, voyage_agg, "builds candidate itineraries from voyages")
   }
+
+  Actor(booking_clerk, "Booking Clerk")
+  BoundedContext(pathfinder_ctx, "Pathfinder")
 ```
