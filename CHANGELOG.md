@@ -19,7 +19,13 @@ Implements the unreleased [D5-SPEC.md](../D5-SPEC.md) amendment to the two tacti
 - Toggles follow suit. `attachContextToggle` lists `DomainService`s and `Process`es beside `Aggregate`s, grouped by kind; an `Actor` or neighbouring context is hidden once every edge it had is gone. `attachAggregateToggle` drops any `Has`/`Ref` touching a hidden member, and a referenced aggregate once nothing references it.
   - **Changed:** `contextToggleAdapter.items()` now sets `group` on every item (`"Aggregates"`, …). The built-in checklist still renders flat when a context has only Aggregates; a custom UI reading `group` will see it where it was `undefined`.
 - `D5ContextReadable` and `D5AggregateReadable` gain getters for the above (`getDomainServices`, `getProcesses`, `getNeighbours`, `getActors`, `getCommands`; `getHas`, `getRefs`, `getNeighbours`, `getCommands`, `getEvents`, `getEmits`, `getStates`, `getTransitions`). **Changed:** a hand-written object passed where one of these interfaces is expected (a custom `ToggleAdapter.filter`, say) must now supply them.
-- `examples/dotnet-eshoponcontainers`: the Ordering context and Order aggregate now use the new elements.
+- Layout: a referenced aggregate is ranked above the member that references it, so it lands beside (or above) the boundary and the `Ref` line never runs down through the Behaviour / Lifecycle / Invariants bands. In `d5-context`, once anything sits outside the boundary the Language sidebar is laid out as a node of the context rather than appended to its right, so an edge to an outside node is routed around it instead of across it. (A context with nothing outside keeps the sidebar where it was.)
+- Examples: nine models now use the new elements — eShop (Ordering context, Order aggregate), dddsample (Booking context with its Routing Service, Cargo aggregate), library (Lending context, Patron and Book aggregates) and all-things-cqrs (Credit Card context and aggregate).
+- `examples/gallery.html` is navigable:
+  - A sticky sidebar lists every example, marks the one being read as the page scrolls, and dots the ones that use the newest elements.
+  - Filter by view (Domain / Subdomain / Context / Aggregate), by element used (`Has`, `Lifecycle`, `Command`, … — read off each diagram's parsed db, so a tag can't drift from its source), and by free-text search over titles, notes and D5 source. Each card shows its elements as tags; clicking one filters by it. Filters live in the query string, so a filtered view can be linked.
+  - <kbd>/</kbd> focuses search, <kbd>j</kbd> / <kbd>k</kbd> step through the visible diagrams, each card has a permalink, an "Expand" toggle and an "Open alone" link to `one.html`.
+  - Diagrams render as they approach the viewport instead of all forty up front, the checklist starts collapsed, and the wheel scrolls the page unless ctrl/⌘ is held — previously a pointer resting on a diagram zoomed it instead of scrolling.
 
 ## 0.6.0
 
